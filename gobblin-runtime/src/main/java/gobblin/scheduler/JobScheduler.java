@@ -72,7 +72,7 @@ import gobblin.runtime.listeners.JobListener;
 import gobblin.runtime.listeners.RunOnceJobListener;
 import gobblin.util.ExecutorsUtils;
 import gobblin.util.SchedulerUtils;
-import gobblin.util.filesystem.PathAlterationDetector;
+import gobblin.util.filesystem.PathAlterationObserverScheduler;
 
 
 /**
@@ -125,7 +125,7 @@ public class JobScheduler extends AbstractIdleService {
   public final Path jobConfigFileDirPath;
 
   // A monitor for changes to job conf files for general FS
-  public final PathAlterationDetector pathAlterationDetector;
+  public final PathAlterationObserverScheduler pathAlterationDetector;
   public final PathAlterationListenerAdaptorForMonitor listener;
 
   // A period of time for scheduler to wait until jobs are finished
@@ -149,7 +149,7 @@ public class JobScheduler extends AbstractIdleService {
     long pollingInterval = Long.parseLong(
         this.properties.getProperty(ConfigurationKeys.JOB_CONFIG_FILE_MONITOR_POLLING_INTERVAL_KEY,
             Long.toString(ConfigurationKeys.DEFAULT_JOB_CONFIG_FILE_MONITOR_POLLING_INTERVAL)));
-    this.pathAlterationDetector = new PathAlterationDetector(pollingInterval);
+    this.pathAlterationDetector = new PathAlterationObserverScheduler(pollingInterval);
 
     this.waitForJobCompletion = Boolean.parseBoolean(
         this.properties.getProperty(ConfigurationKeys.SCHEDULER_WAIT_FOR_JOB_COMPLETION_KEY,
@@ -225,6 +225,7 @@ public class JobScheduler extends AbstractIdleService {
    */
   public void scheduleJob(Properties jobProps, JobListener jobListener)
       throws JobException {
+    LOG.info("In JobScheduler scheduleJob()... {}", jobProps);
     try {
       scheduleJob(jobProps, jobListener, Maps.<String, Object>newHashMap(), GobblinJob.class);
     } catch (JobException | RuntimeException exc) {
@@ -259,14 +260,17 @@ public class JobScheduler extends AbstractIdleService {
   public void scheduleJob(Properties jobProps, JobListener jobListener, Map<String, Object> additionalJobData,
       Class<? extends Job> jobClass)
       throws JobException {
+    LOG.info("In JobScheduler scheduleJob()...");
     Preconditions.checkArgument(jobProps.containsKey(ConfigurationKeys.JOB_NAME_KEY),
         "A job must have a job name specified by job.name");
     String jobName = jobProps.getProperty(ConfigurationKeys.JOB_NAME_KEY);
+    LOG.info("In JobScheduler scheduleJob(), Job Name: {}", jobName);
 
     if (this.scheduledJobs.containsKey(jobName)) {
       LOG.warn("Job " + jobName + " has already been scheduled");
       return;
     }
+    LOG.info("In JobScheduler scheduleJob(), Job has not been scheduled");
 
     // Check if the job has been disabled
     boolean disabled = Boolean.valueOf(jobProps.getProperty(ConfigurationKeys.JOB_DISABLED_KEY, "false"));
@@ -274,6 +278,7 @@ public class JobScheduler extends AbstractIdleService {
       LOG.info("Skipping disabled job " + jobName);
       return;
     }
+    LOG.info("In JobScheduler scheduleJob(), Job has not been disabled");
 
     if (!jobProps.containsKey(ConfigurationKeys.JOB_SCHEDULE_KEY)) {
       // A job without a cron schedule is considered a one-time job
@@ -282,6 +287,7 @@ public class JobScheduler extends AbstractIdleService {
       this.jobExecutor.execute(new NonScheduledJobRunner(jobProps, jobListener));
       return;
     }
+    LOG.info("In JobScheduler scheduleJob(), Job will be scheduled regularly...");
 
     if (jobListener != null) {
       this.jobListenerMap.put(jobName, jobListener);
@@ -347,6 +353,7 @@ public class JobScheduler extends AbstractIdleService {
   public void runJob(Properties jobProps, JobListener jobListener)
       throws JobException {
     try {
+      LOG.info("In JobScheduler runJob()...");
       runJob(jobProps, jobListener, JobLauncherFactory.newJobLauncher(this.properties, jobProps));
     } catch (Exception e) {
       throw new JobException("Failed to run job " + jobProps.getProperty(ConfigurationKeys.JOB_NAME_KEY), e);
@@ -376,6 +383,7 @@ public class JobScheduler extends AbstractIdleService {
     Preconditions.checkArgument(jobProps.containsKey(ConfigurationKeys.JOB_NAME_KEY),
         "A job must have a job name specified by job.name");
     String jobName = jobProps.getProperty(ConfigurationKeys.JOB_NAME_KEY);
+    LOG.info("In JobScheduler runJob()...{}", jobName);
 
     // Check if the job has been disabled
     boolean disabled = Boolean.valueOf(jobProps.getProperty(ConfigurationKeys.JOB_DISABLED_KEY, "false"));
@@ -383,6 +391,7 @@ public class JobScheduler extends AbstractIdleService {
       LOG.info("Skipping disabled job " + jobName);
       return;
     }
+    LOG.info("In JobScheduler runJob()... Job is not disabled");
 
     // Launch the job
     try (Closer closer = Closer.create()) {

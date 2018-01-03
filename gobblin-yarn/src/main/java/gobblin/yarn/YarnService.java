@@ -338,6 +338,9 @@ public class YarnService extends AbstractIdleService {
     Path appWorkDir = GobblinClusterUtils.getAppWorkDirPath(this.fs, this.applicationName, this.applicationId);
     Path containerWorkDir = new Path(appWorkDir, GobblinYarnConfigurationKeys.CONTAINER_WORK_DIR_NAME);
 
+    LOGGER.info("appWorkDir {}", appWorkDir);
+    LOGGER.info("containerWorkDir {}", containerWorkDir);
+
     Map<String, LocalResource> resourceMap = Maps.newHashMap();
 
     addContainerLocalResources(new Path(appWorkDir, GobblinYarnConfigurationKeys.LIB_JARS_DIR_NAME), resourceMap);
@@ -472,8 +475,9 @@ public class YarnService extends AbstractIdleService {
       return;
     }
 
+    this.helixInstanceRetryCount.putIfAbsent(completedInstanceName, new AtomicInteger(0));
     int retryCount =
-        this.helixInstanceRetryCount.putIfAbsent(completedInstanceName, new AtomicInteger(0)).incrementAndGet();
+    	 this.helixInstanceRetryCount.get(completedInstanceName).incrementAndGet();
 
     // Populate event metadata
     Optional<ImmutableMap.Builder<String, String>> eventMetadataBuilder = Optional.absent();

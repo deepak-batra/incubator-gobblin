@@ -30,7 +30,7 @@ import gobblin.configuration.ConfigurationKeys;
 import gobblin.configuration.State;
 import gobblin.source.extractor.CheckpointableWatermark;
 import gobblin.source.extractor.DefaultCheckpointableWatermark;
-import gobblin.source.extractor.RecordEnvelope;
+import gobblin.stream.RecordEnvelope;
 import gobblin.source.extractor.extract.LongWatermark;
 import gobblin.writer.test.TestPartitionAwareWriterBuilder;
 import gobblin.writer.test.TestPartitioner;
@@ -58,7 +58,7 @@ public class PartitionedWriterTest {
     Assert.assertEquals(builder.actions.size(), 0);
 
     String record1 = "abc";
-    writer.write(record1);
+    writer.writeEnvelope(new RecordEnvelope(record1));
 
     Assert.assertEquals(builder.actions.size(), 2);
     TestPartitionAwareWriterBuilder.Action action = builder.actions.poll();
@@ -72,7 +72,7 @@ public class PartitionedWriterTest {
     Assert.assertTrue(writer.isSpeculativeAttemptSafe());
 
     String record2 = "123";
-    writer.write(record2);
+    writer.writeEnvelope(new RecordEnvelope(record2));
 
     Assert.assertEquals(builder.actions.size(), 2);
     action = builder.actions.poll();
@@ -85,7 +85,7 @@ public class PartitionedWriterTest {
     Assert.assertEquals(action.getType(), TestPartitionAwareWriterBuilder.Actions.WRITE);
     Assert.assertEquals(action.getTarget(), record2);
 
-    writer.write(record1);
+    writer.writeEnvelope(new RecordEnvelope(record1));
 
     Assert.assertEquals(builder.actions.size(), 1);
 
@@ -149,7 +149,7 @@ public class PartitionedWriterTest {
 
     PartitionedDataWriter writer = new PartitionedDataWriter<String, String>(builder, state);
 
-    AcknowledgableRecordEnvelope<String> recordEnvelope = new AcknowledgableRecordEnvelope<>("0",
+    RecordEnvelope<String> recordEnvelope = new RecordEnvelope<String>("0").withAckableWatermark(
         new AcknowledgableWatermark(new DefaultCheckpointableWatermark(defaultSource, new LongWatermark(0))));
     writer.writeEnvelope(recordEnvelope);
 

@@ -36,7 +36,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Alpha
-public class GobblinEncryptionProvider implements EncryptionProvider {
+public class GobblinEncryptionProvider implements CredentialStoreProvider, EncryptionProvider {
   private final static Set<String> SUPPORTED_STREAMING_ALGORITHMS =
       ImmutableSet.of("aes_rotating", EncryptionConfigParser.ENCRYPTION_TYPE_ANY);
 
@@ -75,7 +75,7 @@ public class GobblinEncryptionProvider implements EncryptionProvider {
     switch (algorithm) {
       case EncryptionConfigParser.ENCRYPTION_TYPE_ANY:
       case "aes_rotating":
-        CredentialStore cs = buildCredentialStore(parameters);
+        CredentialStore cs = CredentialStoreFactory.buildCredentialStore(parameters);
         if (cs == null) {
           throw new IllegalArgumentException("Failed to build credential store; can't instantiate AES");
         }
@@ -92,7 +92,10 @@ public class GobblinEncryptionProvider implements EncryptionProvider {
     }
   }
 
-  private static CredentialStore buildCredentialStore(Map<String, Object> parameters) {
+  /**
+   * Build a credential store with the given parameters.
+   */
+  public CredentialStore buildCredentialStore(Map<String, Object> parameters) {
     String ks_type = EncryptionConfigParser.getKeystoreType(parameters);
     String ks_path = EncryptionConfigParser.getKeystorePath(parameters);
     String ks_password = EncryptionConfigParser.getKeystorePassword(parameters);
@@ -104,13 +107,30 @@ public class GobblinEncryptionProvider implements EncryptionProvider {
         case JCEKSKeystoreCredentialStore.TAG:
           return new JCEKSKeystoreCredentialStore(ks_path, ks_password);
         case JsonCredentialStore.TAG:
-          return new JsonCredentialStore(ks_path);
+          return new JsonCredentialStore(ks_path, buildKeyToStringCodec(parameters));
         default:
-          throw new IllegalArgumentException("Don't know how to build credstore type " + ks_type);
+          return null;
       }
     } catch (IOException e) {
       log.error("Error building credential store, returning null", e);
       return null;
+    }
+  }
+
+  /**
+   * Build a KeyToStringCodec based on parameters. To reduce complexity we don't build these
+   * through a ServiceLocator since hopefully the # of key encodings is small.
+   * @param parameters Config parameters used to build the codec
+   */
+  private KeyToStringCodec buildKeyToStringCodec(Map<String, Object> parameters) {
+    String encodingName = EncryptionConfigParser.getKeystoreEncoding(parameters);
+    switch (encodingName) {
+      case HexKeyToStringCodec.TAG:
+        return new HexKeyToStringCodec();
+      case Base64KeyToStringCodec.TAG:
+        return new Base64KeyToStringCodec();
+      default:
+        throw new IllegalArgumentException("Don't know how to build key to string codec for type " + encodingName);
     }
   }
 

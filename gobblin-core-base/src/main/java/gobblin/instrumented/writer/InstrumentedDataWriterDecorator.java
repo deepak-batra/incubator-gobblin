@@ -26,11 +26,12 @@ import com.google.common.base.Preconditions;
 import gobblin.configuration.State;
 import gobblin.instrumented.Instrumented;
 import gobblin.metrics.MetricContext;
+import gobblin.records.ControlMessageHandler;
 import gobblin.source.extractor.CheckpointableWatermark;
+import gobblin.stream.RecordEnvelope;
 import gobblin.util.Decorator;
 import gobblin.util.DecoratorUtils;
 import gobblin.util.FinalState;
-import gobblin.writer.AcknowledgableRecordEnvelope;
 import gobblin.writer.DataWriter;
 import gobblin.writer.WatermarkAwareWriter;
 
@@ -63,11 +64,30 @@ public class InstrumentedDataWriterDecorator<D> extends InstrumentedDataWriterBa
   }
 
   @Override
-  public void write(D record) throws IOException {
+  public final void write(D record) throws IOException {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void writeEnvelope(RecordEnvelope<D> record) throws IOException {
     if (this.isEmbeddedInstrumented) {
-      writeImpl(record);
+      this.embeddedWriter.writeEnvelope(record);
     } else {
-      super.write(record);
+
+      if (!isInstrumentationEnabled()) {
+        this.embeddedWriter.writeEnvelope(record);
+        return;
+      }
+
+      try {
+        long startTimeNanos = System.nanoTime();
+        beforeWrite(record.getRecord());
+        this.embeddedWriter.writeEnvelope(record);
+        onSuccessfulWrite(startTimeNanos);
+      } catch (IOException exception) {
+        onException(exception);
+        throw exception;
+      }
     }
   }
 
@@ -116,13 +136,6 @@ public class InstrumentedDataWriterDecorator<D> extends InstrumentedDataWriterBa
   }
 
   @Override
-  public void writeEnvelope(AcknowledgableRecordEnvelope<D> recordEnvelope)
-      throws IOException {
-    Preconditions.checkState(isWatermarkCapable());
-    watermarkAwareWriter.get().writeEnvelope(recordEnvelope);
-  }
-
-  @Override
   public Map<String, CheckpointableWatermark> getCommittableWatermark() {
     Preconditions.checkState(isWatermarkCapable());
     return watermarkAwareWriter.get().getCommittableWatermark();
@@ -132,5 +145,10 @@ public class InstrumentedDataWriterDecorator<D> extends InstrumentedDataWriterBa
   public Map<String, CheckpointableWatermark> getUnacknowledgedWatermark() {
     Preconditions.checkState(isWatermarkCapable());
     return watermarkAwareWriter.get().getUnacknowledgedWatermark();
+  }
+
+  @Override
+  public ControlMessageHandler getMessageHandler() {
+    return this.embeddedWriter.getMessageHandler();
   }
 }

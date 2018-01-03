@@ -80,21 +80,23 @@ public class GobblinHelixJobScheduler extends JobScheduler {
     this.appWorkDir = appWorkDir;
     this.metadataTags = metadataTags;
     this.jobCatalog = jobCatalog;
+    LOGGER.info("In GobblinHelixJobScheduler Constructor...");
   }
 
   @Override
   protected void startUp() throws Exception {
+    LOGGER.info("In GobblinHelixJobScheduler startup()...");
     this.eventBus.register(this);
     super.startUp();
   }
 
   @Override
   public void scheduleJob(Properties jobProps, JobListener jobListener) throws JobException {
+    LOGGER.info("In GobblinHelixJobScheduler scheduleJob()... {}", jobProps);
     Map<String, Object> additionalJobDataMap = Maps.newHashMap();
     additionalJobDataMap.put(HELIX_MANAGER_KEY, this.helixManager);
     additionalJobDataMap.put(APPLICATION_WORK_DIR_KEY, this.appWorkDir);
     additionalJobDataMap.put(METADATA_TAGS, this.metadataTags);
-
     try {
       scheduleJob(jobProps, jobListener, additionalJobDataMap, GobblinHelixJob.class);
     } catch (Exception e) {
@@ -105,6 +107,7 @@ public class GobblinHelixJobScheduler extends JobScheduler {
   @Override
   public void runJob(Properties jobProps, JobListener jobListener) throws JobException {
     try {
+      LOGGER.info("In GobblinHelixJobScheduler runJob()... {}", jobProps);
       JobLauncher jobLauncher = buildGobblinHelixJobLauncher(jobProps);
       runJob(jobProps, jobListener, jobLauncher);
     } catch (Exception e) {
@@ -114,6 +117,7 @@ public class GobblinHelixJobScheduler extends JobScheduler {
 
   private GobblinHelixJobLauncher buildGobblinHelixJobLauncher(Properties jobProps)
       throws Exception {
+    LOGGER.info("In GobblinHelixJobScheduler buildGobblinHelixJobLauncher()...");
     return new GobblinHelixJobLauncher(jobProps, this.helixManager, this.appWorkDir, this.metadataTags);
   }
 

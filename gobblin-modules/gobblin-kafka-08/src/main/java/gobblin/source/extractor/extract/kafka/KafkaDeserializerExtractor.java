@@ -46,6 +46,8 @@ import gobblin.metrics.kafka.KafkaSchemaRegistry;
 import gobblin.metrics.kafka.SchemaRegistryException;
 import gobblin.util.AvroUtils;
 import gobblin.util.PropertiesUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 /**
@@ -77,6 +79,7 @@ public class KafkaDeserializerExtractor extends KafkaExtractor<Object, Object> {
 
   private static final String CONFLUENT_SCHEMA_REGISTRY_URL = "schema.registry.url";
 
+  private static final Logger LOG = LoggerFactory.getLogger(KafkaExtractor.class);
   private final Deserializer<?> kafkaDeserializer;
   private final KafkaSchemaRegistry<?, ?> kafkaSchemaRegistry;
   private final Schema latestSchema;
@@ -114,6 +117,7 @@ public class KafkaDeserializerExtractor extends KafkaExtractor<Object, Object> {
   @Override
   public Object getSchema() {
     try {
+      LOG.info("Getting schema for the topic: " + this.topicName);
       return this.kafkaSchemaRegistry.getLatestSchemaByTopic(this.topicName);
     } catch (SchemaRegistryException e) {
       throw new RuntimeException(e);

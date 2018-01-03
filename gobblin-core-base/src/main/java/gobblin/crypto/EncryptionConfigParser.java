@@ -17,6 +17,7 @@
 package gobblin.crypto;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
 
@@ -35,10 +36,19 @@ import gobblin.util.ForkOperatorUtils;
 @Slf4j
 public class EncryptionConfigParser {
   /**
-   * Encryption parameters for converters
+   * Encryption parameters for converters and writers.
    *  Algorithm: Encryption algorithm. Can be 'any' to let the system choose one.
-   *  keystore_path: Location for the java keystore where encryption keys can be found
-   *  keystore_password: Password the keystore is encrypted with
+   *
+   *  Keystore parameters:
+   *   keystore_type: Type of keystore to build. Gobblin supports 'java' (a JCEKSKeystoreCredenetialStore)
+   *                  and 'json' (a JSONCredentialStore).
+   *   keystore_path: Location for the java keystore where encryption keys can be found
+   *   keystore_password: Password the keystore is encrypted with
+   *   keystore_encoding: Encoding of the key value in a file. Could be 'hex', 'base64', or
+   *                      other implementation defined values.
+   *
+   *   Note that some of these parameters may be optional depending on the type of keystore -- for example,
+   *   a java keystore does not look at the encoding parameter.
    */
   static final String WRITER_ENCRYPT_PREFIX = ConfigurationKeys.WRITER_PREFIX + ".encrypt";
   static final String CONVERTER_ENCRYPT_PREFIX = "converter.encrypt";
@@ -46,11 +56,16 @@ public class EncryptionConfigParser {
   public static final String ENCRYPTION_ALGORITHM_KEY = "algorithm";
   public static final String ENCRYPTION_KEYSTORE_PATH_KEY = "keystore_path";
   public static final String ENCRYPTION_KEYSTORE_PASSWORD_KEY = "keystore_password";
+  public static final String ENCRYPTION_KEY_NAME = "key_name";
 
   public static final String ENCRYPTION_KEYSTORE_TYPE_KEY = "keystore_type";
   public static final String ENCRYPTION_KEYSTORE_TYPE_KEY_DEFAULT = "java";
 
+  public static final String ENCRYPTION_KEYSTORE_ENCODING_KEY = "keystore_encoding";
+  public static final String ENCRYPTION_KEYSTORE_ENCODING_DEFAULT = "hex";
+
   public static final String ENCRYPTION_TYPE_ANY = "any";
+
 
   /**
    * Represents the entity we are trying to retrieve configuration for. Internally this
@@ -78,9 +93,41 @@ public class EncryptionConfigParser {
    * @return A list of encryption properties or null if encryption isn't configured
    */
   public static Map<String, Object> getConfigForBranch(EntityType entityType, WorkUnitState workUnitState) {
-    return getConfigForBranch(workUnitState.getJobState(),
+    return getConfigForBranch(entityType, null, workUnitState);
+  }
+
+  /**
+   * Retrieve encryption configuration for the branch the WorKUnitState represents. This will first retrieve
+   * config for a given entity type (converter.encrypt.*) and then merge it with any entity-specific config
+   * (eg converter.FieldEncryptionConverter.*).
+   *
+   * @param entityType Type of entity we are retrieving config for
+   * @param workUnitState State for the object querying config
+   * @return A list of encryption properties or null if encryption isn't configured
+   */
+  public static Map<String, Object> getConfigForBranch(EntityType entityType, String entityName, WorkUnitState workUnitState) {
+
+    Map<String, Object> config = getConfigForBranch(workUnitState.getJobState(),
         entityType.getConfigPrefix(),
         ForkOperatorUtils.getPropertyNameForBranch(workUnitState, ""));
+
+    if (entityName != null) {
+      final String entityPrefix = entityType.getConfigPrefix() + "." + entityName;
+
+      Map<String, Object> entitySpecificConfig = getConfigForBranch(workUnitState.getJobState(), entityPrefix,
+          ForkOperatorUtils.getPropertyNameForBranch(workUnitState, ""));
+
+      if (config == null) {
+        config = entitySpecificConfig;
+      } else if (entitySpecificConfig != null) {
+        // Remove keys that would have been picked up twice - eg converter.FooConverter.encrypt would first
+        // be picked up by the converter.* check
+        config.keySet().removeIf(s -> s.startsWith(entityName + "."));
+        config.putAll(entitySpecificConfig);
+      }
+    }
+
+    return config;
   }
 
   /**
@@ -140,6 +187,14 @@ public class EncryptionConfigParser {
     }
 
     return type;
+  }
+
+  public static String getKeyName(Map<String, Object> parameters) {
+    return (String)parameters.get(ENCRYPTION_KEY_NAME);
+  }
+
+  public static String getKeystoreEncoding(Map<String, Object> parameters) {
+    return (String)parameters.getOrDefault(ENCRYPTION_KEYSTORE_ENCODING_KEY, ENCRYPTION_KEYSTORE_ENCODING_DEFAULT);
   }
 
   /**

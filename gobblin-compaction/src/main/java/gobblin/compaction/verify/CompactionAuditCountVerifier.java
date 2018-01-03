@@ -1,3 +1,20 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package gobblin.compaction.verify;
 
 import com.google.common.base.Splitter;
@@ -116,6 +133,7 @@ public class CompactionAuditCountVerifier implements CompactionVerifier<FileSyst
       log.error(e.toString());
     }
 
+    log.warn ("Audit count verification failed for {} between {} and {}", datasetName, startTime, endTime);
     return false;
   }
 
@@ -128,21 +146,21 @@ public class CompactionAuditCountVerifier implements CompactionVerifier<FileSyst
    */
   private boolean passed (String datasetName, Map<String, Long> countsByTier, String referenceTier) {
     if (!countsByTier.containsKey(this.gobblinTier)) {
-      log.warn(String
+      log.error (String
               .format("Failed to get audit count for topic %s, tier %s", datasetName, this.gobblinTier));
       return false;
     }
     if (!countsByTier.containsKey(referenceTier)) {
-      log.warn(String.format("Failed to get audit count for topic %s, tier %s", datasetName, referenceTier));
+      log.error (String.format("Failed to get audit count for topic %s, tier %s", datasetName, referenceTier));
       return false;
     }
 
-    long originCount = countsByTier.get(referenceTier);
+    long refCount = countsByTier.get(referenceTier);
     long gobblinCount = countsByTier.get(this.gobblinTier);
 
-    if ((double) gobblinCount / (double) originCount < this.threshold) {
-      log.warn(String.format("Verification failed for %s : gobblin count = %d, originCount count = %d (%f)",
-              datasetName, gobblinCount, originCount, (double) gobblinCount / (double) originCount));
+    if ((double) gobblinCount / (double) refCount < this.threshold) {
+      log.warn (String.format("Verification failed for %s : gobblin count = %d, %s count = %d (%f)",
+              datasetName, gobblinCount, referenceTier, refCount, (double) gobblinCount / (double) refCount));
       return false;
     }
 
@@ -157,5 +175,9 @@ public class CompactionAuditCountVerifier implements CompactionVerifier<FileSyst
     public AuditCountClient createAuditCountClient (State state) {
       return null;
     }
+  }
+
+  public boolean isRetriable () {
+    return true;
   }
 }

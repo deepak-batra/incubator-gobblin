@@ -17,16 +17,17 @@
 
 package gobblin.util;
 
-import static org.apache.avro.SchemaCompatibility.checkReaderWriterCompatibility;
-import static org.apache.avro.SchemaCompatibility.SchemaCompatibilityType.COMPATIBLE;
-
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 import org.apache.avro.AvroRuntimeException;
@@ -77,7 +78,7 @@ public class AvroUtils {
 
   private static final Logger LOG = LoggerFactory.getLogger(AvroUtils.class);
 
-  private static final String FIELD_LOCATION_DELIMITER = ".";
+  public static final String FIELD_LOCATION_DELIMITER = ".";
 
   private static final String AVRO_SUFFIX = ".avro";
 
@@ -140,6 +141,54 @@ public class AvroUtils {
   }
 
   /**
+   * Given a GenericRecord, this method will return the field specified by the path parameter. The
+   * fieldLocation parameter is an ordered string specifying the location of the nested field to retrieve. For example,
+   * field1.nestedField1 takes field "field1", and retrieves "nestedField1" from it.
+   * @param schema is the record to retrieve the schema from
+   * @param fieldLocation is the location of the field
+   * @return the field
+   */
+  public static Optional<Field> getField(Schema schema, String fieldLocation) {
+    Preconditions.checkNotNull(schema);
+    Preconditions.checkArgument(!Strings.isNullOrEmpty(fieldLocation));
+
+    Splitter splitter = Splitter.on(FIELD_LOCATION_DELIMITER).omitEmptyStrings().trimResults();
+    List<String> pathList = Lists.newArrayList(splitter.split(fieldLocation));
+
+    if (pathList.size() == 0) {
+      return Optional.absent();
+    }
+
+    return AvroUtils.getFieldHelper(schema, pathList, 0);
+  }
+
+  /**
+   * Helper method that does the actual work for {@link #getField(Schema, String)}
+   * @param schema passed from {@link #getFieldSchema(Schema, String)}
+   * @param pathList passed from {@link #getFieldSchema(Schema, String)}
+   * @param field keeps track of the index used to access the list pathList
+   * @return the field
+   */
+  private static Optional<Field> getFieldHelper(Schema schema, List<String> pathList, int field) {
+    Field curField = schema.getField(pathList.get(field));
+    if (field + 1 == pathList.size()) {
+      return Optional.fromNullable(curField);
+    }
+
+    Schema fieldSchema = curField.schema();
+    switch (fieldSchema.getType()) {
+      case UNION:
+        throw new AvroRuntimeException("Union of complex types cannot be handled : " + schema);
+      case MAP:
+        return AvroUtils.getFieldHelper(fieldSchema.getValueType(), pathList, ++field);
+      case RECORD:
+        return AvroUtils.getFieldHelper(fieldSchema, pathList, ++field);
+      default:
+        throw new AvroRuntimeException("Invalid type in schema : " + schema);
+    }
+  }
+
+  /**
    * Given a GenericRecord, this method will return the field specified by the path parameter. The fieldLocation
    * parameter is an ordered string specifying the location of the nested field to retrieve. For example,
    * field1.nestedField1 takes the the value of the field "field1", and retrieves the field "nestedField1" from it.
@@ -148,6 +197,11 @@ public class AvroUtils {
    * @return the value of the field
    */
   public static Optional<Object> getFieldValue(GenericRecord record, String fieldLocation) {
+    Map<String, Object> ret = getMultiFieldValue(record, fieldLocation);
+    return Optional.fromNullable(ret.get(fieldLocation));
+  }
+
+  public static Map<String, Object> getMultiFieldValue(GenericRecord record, String fieldLocation) {
     Preconditions.checkNotNull(record);
     Preconditions.checkArgument(!Strings.isNullOrEmpty(fieldLocation));
 
@@ -155,10 +209,12 @@ public class AvroUtils {
     List<String> pathList = splitter.splitToList(fieldLocation);
 
     if (pathList.size() == 0) {
-      return Optional.absent();
+      return Collections.emptyMap();
     }
 
-    return AvroUtils.getFieldHelper(record, pathList, 0);
+    HashMap<String, Object> retVal = new HashMap<String, Object>();
+    AvroUtils.getFieldHelper(retVal, record, pathList, 0);
+    return retVal;
   }
 
   /**
@@ -168,34 +224,101 @@ public class AvroUtils {
    * @param field keeps track of the index used to access the list pathList
    * @return the value of the field
    */
-  private static Optional<Object> getFieldHelper(Object data, List<String> pathList, int field) {
+  private static void getFieldHelper(Map<String, Object> retVal,
+      Object data, List<String> pathList, int field) {
     if (data == null) {
-      return Optional.absent();
+      return;
     }
 
     if ((field + 1) == pathList.size()) {
+      Object val = null;
+      Joiner joiner = Joiner.on(".");
+      String key = joiner.join(pathList.iterator());
+
       if (data instanceof Map) {
-        return Optional.fromNullable(getObjectFromMap((Map) data, pathList.get(field)));
+        val = getObjectFromMap((Map)data, pathList.get(field));
+      } else if (data instanceof List) {
+        val = getObjectFromArray((List)data, Integer.parseInt(pathList.get(field)));
+      } else {
+        val = ((Record)data).get(pathList.get(field));
       }
-      return Optional.fromNullable(((Record) data).get(pathList.get(field)));
+
+      if (val != null) {
+        retVal.put(key, val);
+      }
+
+      return;
     }
     if (data instanceof Map) {
-      return AvroUtils.getFieldHelper(getObjectFromMap((Map) data, pathList.get(field)), pathList, ++field);
+      AvroUtils.getFieldHelper(retVal, getObjectFromMap((Map) data, pathList.get(field)), pathList, ++field);
+      return;
     }
-    return AvroUtils.getFieldHelper(((Record) data).get(pathList.get(field)), pathList, ++field);
+    if (data instanceof List) {
+      if (pathList.get(field).trim().equals("*")) {
+        List arr = (List)data;
+        Iterator it = arr.iterator();
+        int i = 0;
+        while (it.hasNext()) {
+          Object val = it.next();
+          List<String> newPathList = new ArrayList<>(pathList);
+          newPathList.set(field, String.valueOf(i));
+          AvroUtils.getFieldHelper(retVal, val, newPathList, field + 1);
+          i++;
+        }
+      } else {
+        AvroUtils
+            .getFieldHelper(retVal, getObjectFromArray((List) data, Integer.parseInt(pathList.get(field))), pathList, ++field);
+      }
+      return;
+    }
+
+    AvroUtils.getFieldHelper(retVal, ((Record) data).get(pathList.get(field)), pathList, ++field);
+    return;
+  }
+
+  /**
+   * Given a map: key -> value, return a map: key.toString() -> value.toString(). Avro serializer wraps a String
+   * into {@link Utf8}. This method helps to restore the original string map object
+   *
+   * @param map a map object
+   * @return a map of strings
+   */
+  @SuppressWarnings("unchecked")
+  public static Map<String, String> toStringMap(Object map) {
+    if (map == null) {
+      return null;
+    }
+
+    if (map instanceof Map) {
+      Map<Object, Object> rawMap = (Map<Object, Object>) map;
+      Map<String, String> stringMap = new HashMap<>();
+      for (Entry<Object, Object> entry : rawMap.entrySet()) {
+        stringMap.put(entry.getKey().toString(), entry.getValue().toString());
+      }
+      return stringMap;
+    } else {
+      throw new AvroRuntimeException("value must be a map");
+    }
   }
 
   /**
    * This method is to get object from map given a key as string.
    * Avro persists string as Utf8
-   * @param map passed from {@link #getFieldHelper(Object, List, int)}
-   * @param key passed from {@link #getFieldHelper(Object, List, int)}
+   * @param map passed from {@link #getFieldHelper(Map, Object, List, int)}
+   * @param key passed from {@link #getFieldHelper(Map, Object, List, int)}
    * @return This could again be a GenericRecord
    */
 
   private static Object getObjectFromMap(Map map, String key) {
     Utf8 utf8Key = new Utf8(key);
     return map.get(utf8Key);
+  }
+
+  /**
+   * Get an object from an array given an index.
+   */
+  private static Object getObjectFromArray(List array, int index) {
+    return array.get(index);
   }
 
   /**
@@ -208,10 +331,6 @@ public class AvroUtils {
   public static GenericRecord convertRecordSchema(GenericRecord record, Schema newSchema) throws IOException {
     if (record.getSchema().equals(newSchema)) {
       return record;
-    }
-
-    if (checkReaderWriterCompatibility(newSchema, record.getSchema()).getType() != COMPATIBLE) {
-      LOG.debug("Record schema not compatible with writer schema. Converting record schema to writer schema may fail.");
     }
 
     try {

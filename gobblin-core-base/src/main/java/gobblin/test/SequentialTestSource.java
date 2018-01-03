@@ -39,7 +39,7 @@ import gobblin.source.extractor.CheckpointableWatermark;
 import gobblin.source.extractor.DataRecordException;
 import gobblin.source.extractor.DefaultCheckpointableWatermark;
 import gobblin.source.extractor.Extractor;
-import gobblin.source.extractor.RecordEnvelope;
+import gobblin.stream.RecordEnvelope;
 import gobblin.source.extractor.StreamingExtractor;
 import gobblin.source.extractor.WatermarkInterval;
 import gobblin.source.extractor.extract.LongWatermark;
@@ -239,7 +239,7 @@ public class SequentialTestSource implements Source<String, Object> {
     }
 
     @Override
-    public RecordEnvelope<Object> readRecord(@Deprecated RecordEnvelope<Object> reuse)
+    public RecordEnvelope<Object> readRecordEnvelope()
     throws DataRecordException, IOException {
       TestRecord record = (TestRecord) extractor.readRecord(null);
       return new RecordEnvelope<>((Object) record, new DefaultCheckpointableWatermark(""+record.getPartition(),

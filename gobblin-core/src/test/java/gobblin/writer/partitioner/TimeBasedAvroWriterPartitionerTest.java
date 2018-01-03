@@ -33,14 +33,13 @@ import org.testng.annotations.Test;
 
 import gobblin.configuration.ConfigurationKeys;
 import gobblin.configuration.State;
+import gobblin.stream.RecordEnvelope;
 import gobblin.writer.AvroDataWriterBuilder;
 import gobblin.writer.DataWriter;
 import gobblin.writer.DataWriterBuilder;
 import gobblin.writer.Destination;
 import gobblin.writer.PartitionedDataWriter;
 import gobblin.writer.WriterOutputFormat;
-import gobblin.writer.partitioner.TimeBasedAvroWriterPartitioner;
-import gobblin.writer.partitioner.TimeBasedWriterPartitioner;
 
 
 /**
@@ -111,15 +110,15 @@ public class TimeBasedAvroWriterPartitionerTest {
 
     // This timestamp corresponds to 2015/01/01
     genericRecordBuilder.set("timestamp", 1420099200000l);
-    this.writer.write(genericRecordBuilder.build());
+    this.writer.writeEnvelope(new RecordEnvelope<>(genericRecordBuilder.build()));
 
     // This timestamp corresponds to 2015/01/02
     genericRecordBuilder.set("timestamp", 1420185600000l);
-    this.writer.write(genericRecordBuilder.build());
+    this.writer.writeEnvelope(new RecordEnvelope<>(genericRecordBuilder.build()));
 
     // This timestamp corresponds to 2015/01/03
     genericRecordBuilder.set("timestamp", 1420272000000l);
-    this.writer.write(genericRecordBuilder.build());
+    this.writer.writeEnvelope(new RecordEnvelope<>(genericRecordBuilder.build()));
 
     // Check that the writer reports that 3 records have been written
     Assert.assertEquals(this.writer.recordsWritten(), 3);

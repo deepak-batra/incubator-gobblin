@@ -30,6 +30,7 @@ import java.util.TreeMap;
 import org.apache.log4j.Logger;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Optional;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 import com.typesafe.config.Config;
@@ -116,9 +117,14 @@ public class ConfigClient {
    */
   public Config getConfig(URI configKeyUri)
       throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException {
+    return getConfig(configKeyUri, Optional.<Config>absent());
+  }
+
+  public Config getConfig(URI configKeyUri, Optional<Config> runtimeConfig)
+      throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException {
     ConfigStoreAccessor accessor = this.getConfigStoreAccessor(configKeyUri);
     ConfigKeyPath configKeypath = ConfigClientUtils.buildConfigKeyPath(configKeyUri, accessor.configStore);
-    return accessor.valueInspector.getResolvedConfig(configKeypath);
+    return accessor.valueInspector.getResolvedConfig(configKeypath, runtimeConfig);
   }
 
   /**
@@ -170,8 +176,15 @@ public class ConfigClient {
    */
   public Config getConfig(String configKeyStr) throws ConfigStoreFactoryDoesNotExistsException,
       ConfigStoreCreationException, VersionDoesNotExistException, URISyntaxException {
-    return this.getConfig(new URI(configKeyStr));
+    return getConfig(configKeyStr, Optional.<Config>absent());
   }
+
+  public Config getConfig(String configKeyStr, Optional<Config> runtimeConfig)
+      throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException,
+             URISyntaxException {
+    return this.getConfig(new URI(configKeyStr), runtimeConfig);
+  }
+
 
   /**
    * batch process for {@link #getConfig(String)} method
@@ -208,14 +221,19 @@ public class ConfigClient {
    */
   public Collection<URI> getImports(URI configKeyUri, boolean recursive)
       throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException {
+    return getImports(configKeyUri, recursive, Optional.<Config>absent());
+  }
+
+  public Collection<URI> getImports(URI configKeyUri, boolean recursive, Optional<Config> runtimeConfig)
+      throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException {
     ConfigStoreAccessor accessor = this.getConfigStoreAccessor(configKeyUri);
     ConfigKeyPath configKeypath = ConfigClientUtils.buildConfigKeyPath(configKeyUri, accessor.configStore);
     Collection<ConfigKeyPath> result;
 
     if (!recursive) {
-      result = accessor.topologyInspector.getOwnImports(configKeypath);
+      result = accessor.topologyInspector.getOwnImports(configKeypath, runtimeConfig);
     } else {
-      result = accessor.topologyInspector.getImportsRecursively(configKeypath);
+      result = accessor.topologyInspector.getImportsRecursively(configKeypath, runtimeConfig);
     }
 
     return ConfigClientUtils.buildUriInClientFormat(result, accessor.configStore, configKeyUri.getAuthority() != null);
@@ -234,14 +252,19 @@ public class ConfigClient {
    */
   public Collection<URI> getImportedBy(URI configKeyUri, boolean recursive)
       throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException {
+    return getImportedBy(configKeyUri, recursive, Optional.<Config>absent());
+  }
+
+  public Collection<URI> getImportedBy(URI configKeyUri, boolean recursive, Optional<Config> runtimeConfig)
+      throws ConfigStoreFactoryDoesNotExistsException, ConfigStoreCreationException, VersionDoesNotExistException {
     ConfigStoreAccessor accessor = this.getConfigStoreAccessor(configKeyUri);
     ConfigKeyPath configKeypath = ConfigClientUtils.buildConfigKeyPath(configKeyUri, accessor.configStore);
     Collection<ConfigKeyPath> result;
 
     if (!recursive) {
-      result = accessor.topologyInspector.getImportedBy(configKeypath);
+      result = accessor.topologyInspector.getImportedBy(configKeypath, runtimeConfig);
     } else {
-      result = accessor.topologyInspector.getImportedByRecursively(configKeypath);
+      result = accessor.topologyInspector.getImportedByRecursively(configKeypath, runtimeConfig);
     }
 
     return ConfigClientUtils.buildUriInClientFormat(result, accessor.configStore, configKeyUri.getAuthority() != null);
@@ -278,6 +301,7 @@ public class ConfigClient {
     }
 
     String currentVersion = cs.getCurrentVersion();
+    LOG.info("Current config store version number: " + currentVersion);
     // topology related
     ConfigStoreBackedTopology csTopology = new ConfigStoreBackedTopology(cs, currentVersion);
     InMemoryTopology inMemoryTopology = new InMemoryTopology(csTopology);

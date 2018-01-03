@@ -51,6 +51,7 @@ public class ConfigurationKeys {
   public static final String DEFAULT_STATE_STORE_TYPE = "fs";
   public static final String STATE_STORE_TYPE_NOOP = "noop";
 
+  public static final String CONFIG_RUNTIME_PREFIX = "gobblin.config.runtime.";
   // Root directory where task state files are stored
   public static final String STATE_STORE_ROOT_DIR_KEY = "state.store.dir";
   // File system URI for file-system-based task store
@@ -184,6 +185,12 @@ public class ConfigurationKeys {
   public static final String REQUIRED_ATRRIBUTES_LIST = "gobblin.template.required_attributes";
 
   /**
+   * Configuration for emitting job events
+   */
+  public static final String EVENT_METADATA_GENERATOR_CLASS_KEY = "event.metadata.generator.class";
+  public static final String DEFAULT_EVENT_METADATA_GENERATOR_CLASS_KEY = "noop";
+
+  /**
    * Configuration properties used internally.
    */
   public static final String JOB_ID_KEY = "job.id";
@@ -221,6 +228,12 @@ public class ConfigurationKeys {
   public static final String WORK_UNIT_STATE_RUNTIME_HIGH_WATER_MARK = "workunit.state.runtime.high.water.mark";
   public static final String WORK_UNIT_STATE_ACTUAL_HIGH_WATER_MARK_KEY = "workunit.state.actual.high.water.mark";
   public static final String WORK_UNIT_DATE_PARTITION_KEY = "workunit.source.date.partition";
+
+  /**
+   * Task execution properties.
+   */
+  public static final String TASK_SYNCHRONOUS_EXECUTION_MODEL_KEY = "task.execution.synchronousExecutionModel";
+  public static final boolean DEFAULT_TASK_SYNCHRONOUS_EXECUTION_MODEL = true;
 
   /**
    * Watermark interval related configuration properties.
@@ -317,6 +330,8 @@ public class ConfigurationKeys {
   public static final String DEFAULT_WRITER_FILE_PATH_TYPE = "default";
   public static final String SIMPLE_WRITER_DELIMITER = "simple.writer.delimiter";
   public static final String SIMPLE_WRITER_PREPEND_SIZE = "simple.writer.prepend.size";
+  public static final String WRITER_COMPRESSION_KEY= WRITER_PREFIX + ".compression";
+  public static final boolean DEFAULT_WRITER_COMPRESSION_ENABLED = true;
 
   // Internal use only - used to send metadata to publisher
   public static final String WRITER_METADATA_KEY = WRITER_PREFIX + "._internal.metadata";
@@ -344,6 +359,10 @@ public class ConfigurationKeys {
   public static final String DEFAULT_QUALITY_CHECKER_TIMEZONE = PST_TIMEZONE_NAME;
   public static final String CLEAN_ERR_DIR = QUALITY_CHECKER_PREFIX + ".clean.err.dir";
   public static final boolean DEFAULT_CLEAN_ERR_DIR = false;
+  /** Set the approximate max number of records to write in err_file for each task. Note the actual number of records
+   * written may be anything from 0 to about the value set + 100. */
+  public static final String ROW_LEVEL_ERR_FILE_RECORDS_PER_TASK = QUALITY_CHECKER_PREFIX + ".row.errFile.recordsPerTask";
+  public static final long DEFAULT_ROW_LEVEL_ERR_FILE_RECORDS_PER_TASK = 1000000;
 
   /**
    * Configuration properties used by the row count policies.
@@ -448,11 +467,19 @@ public class ConfigurationKeys {
       "source.querybased.jdbc.resultset.fetch.size";
   public static final String SOURCE_QUERYBASED_ALLOW_REMOVE_UPPER_BOUNDS = "source.querybased.allowRemoveUpperBounds";
 
+  public static final String SOURCE_QUERYBASED_PROMOTE_UNSIGNED_INT_TO_BIGINT =
+      "source.querybased.promoteUnsignedIntToBigInt";
+  public static final boolean DEFAULT_SOURCE_QUERYBASED_PROMOTE_UNSIGNED_INT_TO_BIGINT = false;
+
+  public static final String ENABLE_DELIMITED_IDENTIFIER = "enable.delimited.identifier";
+  public static final boolean DEFAULT_ENABLE_DELIMITED_IDENTIFIER = false;
+
   /**
    * Configuration properties used by the FileBasedExtractor
    */
   public static final String SOURCE_FILEBASED_DATA_DIRECTORY = "source.filebased.data.directory";
   public static final String SOURCE_FILEBASED_FILES_TO_PULL = "source.filebased.files.to.pull";
+  public static final String SOURCE_FILEBASED_MAX_FILES_PER_RUN = "source.filebased.maxFilesPerRun";
   public static final String SOURCE_FILEBASED_FS_SNAPSHOT = "source.filebased.fs.snapshot";
   public static final String SOURCE_FILEBASED_FS_URI = "source.filebased.fs.uri";
   public static final String SOURCE_FILEBASED_PRESERVE_FILE_NAME = "source.filebased.preserve.file.name";
@@ -665,6 +692,11 @@ public class ConfigurationKeys {
   public static final String KAFKA_BROKERS = "kafka.brokers";
   public static final String KAFKA_SOURCE_WORK_UNITS_CREATION_THREADS = "kafka.source.work.units.creation.threads";
   public static final int KAFKA_SOURCE_WORK_UNITS_CREATION_DEFAULT_THREAD_COUNT = 30;
+  public static final String KAFKA_SOURCE_SHARE_CONSUMER_CLIENT = "kafka.source.shareConsumerClient";
+  public static final boolean DEFAULT_KAFKA_SOURCE_SHARE_CONSUMER_CLIENT = false;
+  public static final String KAFKA_SOURCE_AVG_FETCH_TIME_CAP = "kakfa.source.avgFetchTimeCap";
+  public static final int DEFAULT_KAFKA_SOURCE_AVG_FETCH_TIME_CAP = 100;
+
 
   /**
    * Job execution info server and history store configuration properties.
@@ -719,6 +751,8 @@ public class ConfigurationKeys {
    * Config store properties
    */
   public static final String CONFIG_MANAGEMENT_STORE_URI = "gobblin.config.management.store.uri";
+  public static final String CONFIG_MANAGEMENT_STORE_ENABLED = "gobblin.config.management.store.enabled";
+  public static final String DEFAULT_CONFIG_MANAGEMENT_STORE_ENABLED = "false";
 
   /**
    * Other configuration properties.
@@ -760,6 +794,16 @@ public class ConfigurationKeys {
   /***
    * Configuration properties related to Compaction Suite
    */
-  public static final String COMPACTION_SUITE_FACTORY = "compaction.suite.factory";
+  public static final String COMPACTION_PREFIX = "compaction.";
+  public static final String COMPACTION_SUITE_FACTORY = COMPACTION_PREFIX + "suite.factory";
   public static final String DEFAULT_COMPACTION_SUITE_FACTORY = "CompactionAvroSuiteFactory";
+
+  public static final String COMPACTION_PRIORITIZATION_PREFIX = COMPACTION_PREFIX + "prioritization.";
+  public static final String COMPACTION_PRIORITIZER_ALIAS = COMPACTION_PRIORITIZATION_PREFIX + "prioritizerAlias";
+  public static final String COMPACTION_ESTIMATOR = COMPACTION_PRIORITIZATION_PREFIX + "estimator";
+
+  /**
+   * Configuration related to ConfigStore based copy/retention
+   */
+  public static final String CONFIG_BASED_PREFIX = "gobblin.configBased";
 }

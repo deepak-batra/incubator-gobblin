@@ -22,7 +22,18 @@ import java.io.IOException;
 
 import gobblin.configuration.State;
 import gobblin.configuration.WorkUnitState;
+import gobblin.converter.initializer.ConverterInitializer;
+import gobblin.converter.initializer.NoopConverterInitializer;
+import gobblin.stream.ControlMessage;
+import gobblin.records.ControlMessageHandler;
+import gobblin.records.RecordStreamProcessor;
+import gobblin.records.RecordStreamWithMetadata;
+import gobblin.stream.RecordEnvelope;
+import gobblin.source.workunit.WorkUnitStream;
+import gobblin.stream.StreamEntity;
 import gobblin.util.FinalState;
+
+import io.reactivex.Flowable;
 
 
 /**
@@ -42,7 +53,7 @@ import gobblin.util.FinalState;
  * @param <DI> input data type
  * @param <DO> output data type
  */
-public abstract class Converter<SI, SO, DI, DO> implements Closeable, FinalState {
+public abstract class Converter<SI, SO, DI, DO> implements Closeable, FinalState, RecordStreamProcessor<SI, SO, DI, DO> {
   /**
    * Initialize this {@link Converter}.
    *
@@ -99,5 +110,42 @@ public abstract class Converter<SI, SO, DI, DO> implements Closeable, FinalState
   @Override
   public State getFinalState() {
     return new State();
+  }
+
+  /**
+   * Apply conversions to the input {@link RecordStreamWithMetadata}.
+   */
+  @Override
+  public RecordStreamWithMetadata<DO, SO> processStream(RecordStreamWithMetadata<DI, SI> inputStream,
+      WorkUnitState workUnitState) throws SchemaConversionException {
+    init(workUnitState);
+    SO outputSchema = convertSchema(inputStream.getSchema(), workUnitState);
+    Flowable<StreamEntity<DO>> outputStream =
+        inputStream.getRecordStream()
+            .flatMap(in -> {
+              if (in instanceof ControlMessage) {
+                getMessageHandler().handleMessage((ControlMessage) in);
+                return Flowable.just(((ControlMessage<DO>) in));
+              } else if (in instanceof RecordEnvelope) {
+                RecordEnvelope<DI> recordEnvelope = (RecordEnvelope<DI>) in;
+                return Flowable.fromIterable(convertRecord(outputSchema, recordEnvelope.getRecord(), workUnitState)).
+                    map(recordEnvelope::withRecord);
+              } else {
+                throw new UnsupportedOperationException();
+              }
+            }, 1);
+    outputStream = outputStream.doOnComplete(this::close);
+    return inputStream.withRecordStream(outputStream, outputSchema);
+  }
+
+  /**
+   * @return {@link ControlMessageHandler} to call for each {@link ControlMessage} received.
+   */
+  public ControlMessageHandler getMessageHandler() {
+    return ControlMessageHandler.NOOP;
+  }
+
+  public ConverterInitializer getInitializer(State state, WorkUnitStream workUnits, int branches, int branchId) {
+    return NoopConverterInitializer.INSTANCE;
   }
 }
