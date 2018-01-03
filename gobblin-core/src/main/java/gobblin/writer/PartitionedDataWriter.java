@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import gobblin.util.ForkOperatorUtils;
 import org.apache.avro.SchemaBuilder;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericRecord;
@@ -40,7 +41,10 @@ import gobblin.configuration.ConfigurationKeys;
 import gobblin.configuration.State;
 import gobblin.instrumented.writer.InstrumentedDataWriterDecorator;
 import gobblin.instrumented.writer.InstrumentedPartitionedDataWriterDecorator;
+import gobblin.records.ControlMessageHandler;
 import gobblin.source.extractor.CheckpointableWatermark;
+import gobblin.stream.ControlMessage;
+import gobblin.stream.RecordEnvelope;
 import gobblin.util.AvroUtils;
 import gobblin.util.FinalState;
 import gobblin.writer.partitioner.WriterPartitioner;
@@ -53,7 +57,7 @@ import gobblin.writer.partitioner.WriterPartitioner;
  * @param <D> record type.
  */
 @Slf4j
-public class PartitionedDataWriter<S, D> implements DataWriter<D>, FinalState, SpeculativeAttemptAwareConstruct, WatermarkAwareWriter<D> {
+public class PartitionedDataWriter<S, D> extends WriterWrapper<D> implements FinalState, SpeculativeAttemptAwareConstruct, WatermarkAwareWriter<D> {
 
   private static final GenericRecord NON_PARTITIONED_WRITER_KEY =
       new GenericData.Record(SchemaBuilder.record("Dummy").fields().endRecord());
@@ -83,7 +87,10 @@ public class PartitionedDataWriter<S, D> implements DataWriter<D>, FinalState, S
       }
     });
 
-    if (state.contains(ConfigurationKeys.WRITER_PARTITIONER_CLASS)) {
+    String writerPartitionerPropName = ForkOperatorUtils
+            .getPropertyNameForBranch(ConfigurationKeys.WRITER_PARTITIONER_CLASS, builder.getBranch());
+
+    if (state.contains(writerPartitionerPropName)) {
       Preconditions.checkArgument(builder instanceof PartitionAwareDataWriterBuilder, String
               .format("%s was specified but the writer %s does not support partitioning.",
                   ConfigurationKeys.WRITER_PARTITIONER_CLASS, builder.getClass().getCanonicalName()));
@@ -92,7 +99,7 @@ public class PartitionedDataWriter<S, D> implements DataWriter<D>, FinalState, S
         this.shouldPartition = true;
         this.builder = Optional.of(PartitionAwareDataWriterBuilder.class.cast(builder));
         this.partitioner = Optional.of(WriterPartitioner.class.cast(ConstructorUtils
-                .invokeConstructor(Class.forName(state.getProp(ConfigurationKeys.WRITER_PARTITIONER_CLASS)), state,
+                .invokeConstructor(Class.forName(state.getProp(writerPartitionerPropName)), state,
                     builder.getBranches(), builder.getBranch())));
         Preconditions
             .checkArgument(this.builder.get().validatePartitionSchema(this.partitioner.get().partitionSchema()), String
@@ -118,13 +125,11 @@ public class PartitionedDataWriter<S, D> implements DataWriter<D>, FinalState, S
     return (dataWriter instanceof WatermarkAwareWriter) && (((WatermarkAwareWriter) dataWriter).isWatermarkCapable());
   }
 
-
   @Override
-  public void write(D record)
-      throws IOException {
+  public void writeEnvelope(RecordEnvelope<D> recordEnvelope) throws IOException {
     try {
-      DataWriter<D> writer = getDataWriterForRecord(record);
-      writer.write(record);
+      DataWriter<D> writer = getDataWriterForRecord(recordEnvelope.getRecord());
+      writer.writeEnvelope(recordEnvelope);
     } catch (ExecutionException ee) {
       throw new IOException(ee);
     }
@@ -255,19 +260,6 @@ public class PartitionedDataWriter<S, D> implements DataWriter<D>, FinalState, S
   }
 
   @Override
-  public void writeEnvelope(AcknowledgableRecordEnvelope<D> recordEnvelope)
-      throws IOException {
-    try {
-      DataWriter<D> writer = getDataWriterForRecord(recordEnvelope.getRecord());
-      // Unsafe cast, presumably we've checked earlier through isWatermarkCapable()
-      // that we are wrapping watermark aware wrappers
-      ((WatermarkAwareWriter) writer).writeEnvelope(recordEnvelope);
-    } catch (ExecutionException ee) {
-      throw new IOException(ee);
-    }
-  }
-
-  @Override
   public Map<String, CheckpointableWatermark> getCommittableWatermark() {
     // The committable watermark from a collection of commitable and unacknowledged watermarks is the highest
     // committable watermark that is less than the lowest unacknowledged watermark
@@ -304,4 +296,20 @@ public class PartitionedDataWriter<S, D> implements DataWriter<D>, FinalState, S
     return watermarkTracker.getAllUnacknowledgedWatermarks();
   }
 
+  @Override
+  public ControlMessageHandler getMessageHandler() {
+    return new PartitionDataWriterMessageHandler();
+  }
+
+  /**
+   * A {@link ControlMessageHandler} that clones the message and lets each writer handle it.
+   */
+  private class PartitionDataWriterMessageHandler implements ControlMessageHandler {
+    @Override
+    public void handleMessage(ControlMessage message) {
+      for (DataWriter writer : PartitionedDataWriter.this.partitionWriters.asMap().values()) {
+        writer.getMessageHandler().handleMessage((ControlMessage) message.getClone());
+      }
+    }
+  }
 }

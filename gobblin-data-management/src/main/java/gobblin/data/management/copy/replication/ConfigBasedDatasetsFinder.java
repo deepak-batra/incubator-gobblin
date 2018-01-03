@@ -33,16 +33,17 @@ import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterators;
 import com.typesafe.config.Config;
 
@@ -52,13 +53,13 @@ import gobblin.config.client.api.VersionStabilityPolicy;
 import gobblin.config.store.api.ConfigStoreCreationException;
 import gobblin.config.store.api.VersionDoesNotExistException;
 import gobblin.configuration.ConfigurationKeys;
+import gobblin.dataset.DatasetsFinder;
+import gobblin.util.PathUtils;
 import gobblin.data.management.copy.CopyConfiguration;
 import gobblin.data.management.copy.CopySource;
-import gobblin.data.management.copy.CopyableDatasetBase;
-import gobblin.dataset.DatasetsFinder;
+import gobblin.dataset.Dataset;
 import gobblin.util.Either;
 import gobblin.util.ExecutorsUtils;
-import gobblin.util.PathUtils;
 import gobblin.util.executors.IteratorExecutor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -70,53 +71,71 @@ import lombok.extern.slf4j.Slf4j;
  */
 
 @Slf4j
-public class ConfigBasedDatasetsFinder implements DatasetsFinder<CopyableDatasetBase> {
+public abstract class ConfigBasedDatasetsFinder implements DatasetsFinder {
 
-  // specify the whitelist tag in the config store used by data replication
-  // the datasets which import this tag will be processed by data replication
-  public static final String GOBBLIN_REPLICATION_CONFIG_STORE_WHITELIST_TAG =
-      CopyConfiguration.COPY_PREFIX + ".whitelist.tag";
+  // specify the whitelist tag in the config store used by data replication or data retention
+  // the datasets which import this tag will be processed by data replication or data retention
+  public static final String GOBBLIN_CONFIG_STORE_WHITELIST_TAG =
+      ConfigurationKeys.CONFIG_BASED_PREFIX + ".whitelist.tag";
 
-  // specify the blacklist tags in the config store used by data replication
-  // the datasets which import these tags will NOT be processed by data replication
+  // specify the blacklist tags in the config store used by data replication or data retention
+  // the datasets which import these tags will NOT be processed by data replication or data retention
   // and blacklist override the whitelist
-  public static final String GOBBLIN_REPLICATION_CONFIG_STORE_BLACKLIST_TAGS =
-      CopyConfiguration.COPY_PREFIX + ".blacklist.tags";
+  public static final String GOBBLIN_CONFIG_STORE_BLACKLIST_TAGS =
+      ConfigurationKeys.CONFIG_BASED_PREFIX + ".blacklist.tags";
 
-  // specify the common root for all the datasets which will be processed by data replication
-  public static final String GOBBLIN_REPLICATION_CONFIG_STORE_DATASET_COMMON_ROOT =
-      CopyConfiguration.COPY_PREFIX + ".dataset.common.root";
+  // specify the common root for all the datasets which will be processed by data replication/data retention
+  public static final String GOBBLIN_CONFIG_STORE_DATASET_COMMON_ROOT =
+      ConfigurationKeys.CONFIG_BASED_PREFIX + ".dataset.common.root";
 
-  private final String storeRoot;
-  private final Path replicationDatasetCommonRoot;
-  private final Path whitelistTag;
-  private final Optional<List<Path>> blacklistTags;
-  private final ConfigClient configClient;
-  private final Properties props;
+  // In addition to the white/blacklist tags, this configuration let the user to black/whitelist some datasets
+  // in the job-level configuration, which is not in configStore
+  // as to have easier approach to black/whitelist some datasets.
+  // The semantics keep still as tag, which the blacklist override whitelist if any dataset in common.
+  public static final String JOB_LEVEL_BLACKLIST = CopyConfiguration.COPY_PREFIX + ".configBased.blacklist" ;
+  public static final String JOB_LEVEL_WHITELIST = CopyConfiguration.COPY_PREFIX + ".configBased.whitelist" ;
+
+  // There are some cases that WATERMARK checking is desired, like
+  // Unexpected data loss on target while not changing watermark accordingly.
+  // This configuration make WATERMARK checking configurable for operation convenience, default true
+  public static final String WATERMARK_ENABLE = CopyConfiguration.COPY_PREFIX + ".configBased.watermark.enabled" ;
+
+
+  protected final String storeRoot;
+  protected final Path commonRoot;
+  protected final Path whitelistTag;
+  protected final Optional<List<Path>> blacklistTags;
+  protected final ConfigClient configClient;
+  protected final Properties props;
   private final int threadPoolSize;
 
-  public ConfigBasedDatasetsFinder(FileSystem fs, Properties props) throws IOException {
+  private Optional<List<String>> blacklistURNs;
+  private Optional<List<String>> whitelistURNs;
+
+
+  public ConfigBasedDatasetsFinder(FileSystem fs, Properties jobProps) throws IOException {
     // ignore the input FileSystem , the source file system could be different for different datasets
 
-    Preconditions.checkArgument(props.containsKey(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI),
+    Preconditions.checkArgument(jobProps.containsKey(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI),
         "missing required config entery " + ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI);
-    Preconditions.checkArgument(props.containsKey(GOBBLIN_REPLICATION_CONFIG_STORE_DATASET_COMMON_ROOT),
-        "missing required config entery " + GOBBLIN_REPLICATION_CONFIG_STORE_DATASET_COMMON_ROOT);
-    Preconditions.checkArgument(props.containsKey(GOBBLIN_REPLICATION_CONFIG_STORE_WHITELIST_TAG),
-        "missing required config entery " + GOBBLIN_REPLICATION_CONFIG_STORE_WHITELIST_TAG);
+    Preconditions.checkArgument(jobProps.containsKey(GOBBLIN_CONFIG_STORE_WHITELIST_TAG),
+        "missing required config entery " + GOBBLIN_CONFIG_STORE_WHITELIST_TAG);
+    Preconditions.checkArgument(jobProps.containsKey(GOBBLIN_CONFIG_STORE_DATASET_COMMON_ROOT),
+        "missing required config entery " + GOBBLIN_CONFIG_STORE_DATASET_COMMON_ROOT);
 
-    this.storeRoot = props.getProperty(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI);
-    this.replicationDatasetCommonRoot = PathUtils.mergePaths(new Path(this.storeRoot),
-        new Path(props.getProperty(GOBBLIN_REPLICATION_CONFIG_STORE_DATASET_COMMON_ROOT)));
+    this.storeRoot = jobProps.getProperty(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI);
+    this.commonRoot = PathUtils.mergePaths(new Path(this.storeRoot),
+        new Path(jobProps.getProperty(GOBBLIN_CONFIG_STORE_DATASET_COMMON_ROOT)));
     this.whitelistTag = PathUtils.mergePaths(new Path(this.storeRoot),
-        new Path(props.getProperty(GOBBLIN_REPLICATION_CONFIG_STORE_WHITELIST_TAG)));
-    this.threadPoolSize = props.containsKey(CopySource.MAX_CONCURRENT_LISTING_SERVICES)
-        ? Integer.parseInt(props.getProperty(CopySource.MAX_CONCURRENT_LISTING_SERVICES))
+        new Path(jobProps.getProperty(GOBBLIN_CONFIG_STORE_WHITELIST_TAG)));
+    this.threadPoolSize = jobProps.containsKey(CopySource.MAX_CONCURRENT_LISTING_SERVICES)
+        ? Integer.parseInt(jobProps.getProperty(CopySource.MAX_CONCURRENT_LISTING_SERVICES))
         : CopySource.DEFAULT_MAX_CONCURRENT_LISTING_SERVICES;
 
-    if (props.containsKey(GOBBLIN_REPLICATION_CONFIG_STORE_BLACKLIST_TAGS)) {
+
+    if (jobProps.containsKey(GOBBLIN_CONFIG_STORE_BLACKLIST_TAGS)) {
       List<String> disableStrs = Splitter.on(",").omitEmptyStrings()
-          .splitToList(props.getProperty(GOBBLIN_REPLICATION_CONFIG_STORE_BLACKLIST_TAGS));
+          .splitToList(jobProps.getProperty(GOBBLIN_CONFIG_STORE_BLACKLIST_TAGS));
       List<Path> disablePaths = new ArrayList<Path>();
       for (String s : disableStrs) {
         disablePaths.add(PathUtils.mergePaths(new Path(this.storeRoot), new Path(s)));
@@ -127,11 +146,48 @@ public class ConfigBasedDatasetsFinder implements DatasetsFinder<CopyableDataset
     }
 
     configClient = ConfigClient.createConfigClient(VersionStabilityPolicy.WEAK_LOCAL_STABILITY);
-    this.props = props;
+    this.props = jobProps;
+
+
+    if (props.containsKey(JOB_LEVEL_BLACKLIST)) {
+      this.blacklistURNs = Optional.of(Splitter.on(",").omitEmptyStrings().splitToList(props.getProperty(JOB_LEVEL_BLACKLIST)));
+    } else {
+      this.blacklistURNs = Optional.absent();
+    }
+
+    if (props.containsKey(JOB_LEVEL_WHITELIST)) {
+      this.whitelistURNs = Optional.of(Splitter.on(",").omitEmptyStrings().splitToList(props.getProperty(JOB_LEVEL_WHITELIST)));
+    } else {
+      this.whitelistURNs = Optional.absent();
+    }
   }
 
-  protected static Set<URI> getValidDatasetURIs(Collection<URI> allDatasetURIs, Set<URI> disabledURISet,
-      Path datasetCommonRoot) {
+  protected Set<URI> getValidDatasetURIs(Path datasetCommonRoot) {
+    Collection<URI> allDatasetURIs;
+    Set<URI> disabledURISet = new HashSet();
+    if (this.blacklistURNs.isPresent()) {
+      for(String urn : this.blacklistURNs.get()) {
+        disabledURISet.add(this.datasetURNtoURI(urn));
+      }
+    }
+
+    try {
+      // get all the URIs which imports {@link #replicationTag} or all from whitelistURNs
+      allDatasetURIs = this.whitelistURNs.isPresent()
+          ? this.whitelistURNs.get().stream().map(u -> this.datasetURNtoURI(u)).collect(Collectors.toList()) : configClient.getImportedBy(new URI(whitelistTag.toString()), true);
+      populateDisabledURIs(disabledURISet);
+    } catch ( ConfigStoreFactoryDoesNotExistsException | ConfigStoreCreationException
+        | URISyntaxException e) {
+      log.error("Caught error while getting all the datasets URIs " + e.getMessage());
+      throw new RuntimeException(e);
+    }
+    return getValidDatasetURIs(allDatasetURIs, disabledURISet, datasetCommonRoot);
+  }
+
+  /**
+   * Extended signature for testing convenience.
+   */
+  protected static Set<URI> getValidDatasetURIs(Collection<URI> allDatasetURIs, Set<URI> disabledURISet, Path datasetCommonRoot){
     if (allDatasetURIs == null || allDatasetURIs.isEmpty()) {
       return ImmutableSet.of();
     }
@@ -174,9 +230,29 @@ public class ConfigBasedDatasetsFinder implements DatasetsFinder<CopyableDataset
     for (URI disable : disabledURISet) {
       if (validURISet.remove(disable)) {
         log.info("skip disabled dataset " + disable);
+      } else {
+        log.info("There's no URI " + disable + " available in validURISet.");
       }
     }
     return validURISet;
+  }
+
+  private void populateDisabledURIs(Set<URI> disabledURIs) throws
+                                                           URISyntaxException,
+                                                           ConfigStoreFactoryDoesNotExistsException,
+                                                           ConfigStoreCreationException,
+                                                           VersionDoesNotExistException {
+    if (this.blacklistTags.isPresent()) {
+      disabledURIs = new HashSet<URI>();
+      for (Path s : this.blacklistTags.get()) {
+        disabledURIs.addAll(configClient.getImportedBy(new URI(s.toString()), true));
+      }
+    }
+  }
+
+  @Override
+  public Path commonDatasetRoot() {
+    return this.commonRoot;
   }
 
   /**
@@ -188,32 +264,14 @@ public class ConfigBasedDatasetsFinder implements DatasetsFinder<CopyableDataset
    * Then created {@link ConfigBasedDataset} based on the {@link Config} of the URIs
    */
   @Override
-  public List<CopyableDatasetBase> findDatasets() throws IOException {
-    Collection<URI> allDatasetURIs;
-    Set<URI> disabledURIs = ImmutableSet.of();
-    try {
-      // get all the URIs which imports {@link #replicationTag}
-      allDatasetURIs = configClient.getImportedBy(new URI(whitelistTag.toString()), true);
-
-      if (this.blacklistTags.isPresent()) {
-        disabledURIs = new HashSet<URI>();
-        for (Path s : this.blacklistTags.get()) {
-          disabledURIs.addAll(configClient.getImportedBy(new URI(s.toString()), true));
-        }
-      }
-    } catch (VersionDoesNotExistException | ConfigStoreFactoryDoesNotExistsException | ConfigStoreCreationException
-        | URISyntaxException e) {
-      log.error("Caught error while getting all the datasets URIs " + e.getMessage());
-      throw new RuntimeException(e);
-    }
-
-    Set<URI> leafDatasets = getValidDatasetURIs(allDatasetURIs, disabledURIs, this.replicationDatasetCommonRoot);
+  public List<Dataset> findDatasets() throws IOException {
+    Set<URI> leafDatasets = getValidDatasetURIs(this.commonRoot);
     if (leafDatasets.isEmpty()) {
       return ImmutableList.of();
     }
 
-    final List<CopyableDatasetBase> result = new CopyOnWriteArrayList<>();
-
+    // Parallel execution for copyDataset for performance consideration.
+    final List<Dataset> result = new CopyOnWriteArrayList<>();
     Iterator<Callable<Void>> callableIterator =
         Iterators.transform(leafDatasets.iterator(), new Function<URI, Callable<Void>>() {
           @Override
@@ -227,12 +285,7 @@ public class ConfigBasedDatasetsFinder implements DatasetsFinder<CopyableDataset
     return result;
   }
 
-  @Override
-  public Path commonDatasetRoot() {
-    return this.replicationDatasetCommonRoot;
-  }
-
-  private void executeItertorExecutor(Iterator<Callable<Void>> callableIterator) throws IOException {
+  protected void executeItertorExecutor(Iterator<Callable<Void>> callableIterator) throws IOException {
     try {
       IteratorExecutor<Void> executor = new IteratorExecutor<>(callableIterator, this.threadPoolSize,
           ExecutorsUtils.newDaemonThreadFactory(Optional.of(log), Optional.of(this.getClass().getSimpleName())));
@@ -243,17 +296,18 @@ public class ConfigBasedDatasetsFinder implements DatasetsFinder<CopyableDataset
     }
   }
 
-  protected Callable<Void> findDatasetsCallable(final ConfigClient confClient, final URI u, final Properties p,
-      final Collection<CopyableDatasetBase> datasets) {
-    return new Callable<Void>() {
-      @Override
-      public Void call() throws Exception {
-        // Process each {@link Config}, find dataset and add those into the datasets
-        Config c = confClient.getConfig(u);
-        List<ConfigBasedDataset> datasetForConfig = new ConfigBasedMultiDatasets(c, p).getConfigBasedDatasetList();
-        datasets.addAll(datasetForConfig);
-        return null;
-      }
-    };
+  /**
+   * Helper funcition for converting datasetURN into URI
+   */
+  private URI datasetURNtoURI(String datasetURN) {
+    try {
+      return new URI(PathUtils.mergePaths(new Path(this.storeRoot), new Path(datasetURN)).toString());
+    }catch (URISyntaxException e) {
+      log.error("Dataset with URN:" + datasetURN + " cannot be converted into URI. Skip the dataset");
+      return null;
+    }
   }
+
+  protected abstract Callable<Void> findDatasetsCallable(final ConfigClient confClient,
+      final URI u, final Properties p, final Collection<Dataset> datasets);
 }

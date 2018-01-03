@@ -39,6 +39,8 @@ import com.google.common.base.Preconditions;
 
 import gobblin.annotation.Alpha;
 import gobblin.configuration.State;
+import gobblin.configuration.ConfigurationKeys;
+import gobblin.util.ForkOperatorUtils;
 
 
 /**
@@ -146,7 +148,7 @@ public class HiveSerDeWrapper {
    *
    * @param serDeType The SerDe type. If serDeType is one of the available {@link HiveSerDeWrapper.BuiltInHiveSerDe},
    * the other three parameters are not used. Otherwise, serDeType should be the class name of a {@link SerDe},
-   * and the other three parameters must be present.
+   * and the other two parameters must be present.
    */
   public static HiveSerDeWrapper get(String serDeType, Optional<String> inputFormatClassName,
       Optional<String> outputFormatClassName) {
@@ -168,9 +170,15 @@ public class HiveSerDeWrapper {
    * {@link #SERDE_SERIALIZER_INPUT_FORMAT_TYPE}, {@link #SERDE_SERIALIZER_OUTPUT_FORMAT_TYPE} and
    */
   public static HiveSerDeWrapper getSerializer(State state) {
-    Preconditions.checkArgument(state.contains(SERDE_SERIALIZER_TYPE),
-        "Missing required property " + SERDE_SERIALIZER_TYPE);
-    return get(state.getProp(SERDE_SERIALIZER_TYPE),
+    int branchId = Integer.valueOf(state.getProp(ConfigurationKeys.FORK_BRANCH_ID_KEY, "-1"));
+    return getSerializer(state, branchId);
+  }
+
+  public static HiveSerDeWrapper getSerializer(State state, int branchId) {
+    String serializerKey = ForkOperatorUtils.getPropertyNameForBranch(SERDE_SERIALIZER_TYPE, branchId);
+    Preconditions.checkArgument(state.contains(serializerKey),
+        "Missing required property " + serializerKey);
+    return get(state.getProp(serializerKey),
         Optional.fromNullable(state.getProp(SERDE_SERIALIZER_INPUT_FORMAT_TYPE)),
         Optional.fromNullable(state.getProp(SERDE_SERIALIZER_OUTPUT_FORMAT_TYPE)));
   }
@@ -182,9 +190,15 @@ public class HiveSerDeWrapper {
    * {@link #SERDE_DESERIALIZER_INPUT_FORMAT_TYPE}, {@link #SERDE_DESERIALIZER_OUTPUT_FORMAT_TYPE} and
    */
   public static HiveSerDeWrapper getDeserializer(State state) {
-    Preconditions.checkArgument(state.contains(SERDE_DESERIALIZER_TYPE),
-        "Missing required property " + SERDE_DESERIALIZER_TYPE);
-    return get(state.getProp(SERDE_DESERIALIZER_TYPE),
+    int branchId = Integer.valueOf(state.getProp(ConfigurationKeys.FORK_BRANCH_ID_KEY, "-1"));
+    return getDeserializer(state, branchId);
+  }
+
+  public static HiveSerDeWrapper getDeserializer(State state, int branchId) {
+    String deserializerKey = ForkOperatorUtils.getPropertyNameForBranch(SERDE_DESERIALIZER_TYPE, branchId);
+    Preconditions.checkArgument(state.contains(deserializerKey),
+            "Missing required property " + deserializerKey);
+    return get(state.getProp(deserializerKey),
         Optional.fromNullable(state.getProp(SERDE_DESERIALIZER_INPUT_FORMAT_TYPE)),
         Optional.fromNullable(state.getProp(SERDE_DESERIALIZER_OUTPUT_FORMAT_TYPE)));
   }

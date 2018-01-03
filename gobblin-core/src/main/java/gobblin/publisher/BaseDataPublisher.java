@@ -312,7 +312,7 @@ public class BaseDataPublisher extends SingleTaskDataPublisher {
             publisherOutputDir.getParent(), this.permissions.get(branchId));
       }
 
-      movePath(parallelRunner, state, writerOutputDir, publisherOutputDir, branchId);
+      addWriterOutputToExistingDir(writerOutputDir, publisherOutputDir, state, branchId, parallelRunner);
       writerOutputPathsMoved.add(writerOutputDir);
     }
   }

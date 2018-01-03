@@ -37,6 +37,7 @@ import gobblin.source.DatePartitionedAvroFileSource;
 import gobblin.source.workunit.Extract.TableType;
 import gobblin.source.workunit.MultiWorkUnit;
 import gobblin.source.workunit.WorkUnit;
+import gobblin.stream.RecordEnvelope;
 import gobblin.writer.AvroDataWriterBuilder;
 import gobblin.writer.DataWriter;
 import gobblin.writer.DataWriterBuilder;
@@ -134,7 +135,7 @@ public class DatePartitionedAvroFileExtractorTest {
     GenericRecordBuilder genericRecordBuilder = new GenericRecordBuilder(this.schema);
     for (int i = 0; i < RECORD_SIZE; i++) {
       genericRecordBuilder.set(PARTITION_COLUMN_NAME, recordTimestamps[i]);
-      this.writer.write(genericRecordBuilder.build());
+      this.writer.writeEnvelope(new RecordEnvelope<>(genericRecordBuilder.build()));
     }
 
     this.writer.close();

@@ -73,6 +73,7 @@ public abstract class TimeBasedWriterPartitioner<D> implements WriterPartitioner
   private final DateTimeZone timeZone;
   private final Optional<DateTimeFormatter> timestampToPathFormatter;
   private final Schema schema;
+  private final String columns;
 
   public TimeBasedWriterPartitioner(State state, int numBranches, int branchId) {
     this.writerPartitionPrefix = getWriterPartitionPrefix(state, numBranches, branchId);
@@ -81,6 +82,7 @@ public abstract class TimeBasedWriterPartitioner<D> implements WriterPartitioner
     this.timeZone = getTimeZone(state, numBranches, branchId);
     this.timestampToPathFormatter = getTimestampToPathFormatter(state, numBranches, branchId);
     this.schema = getSchema();
+    this.columns = state.getProp("columns");
   }
 
   private static String getWriterPartitionPrefix(State state, int numBranches, int branchId) {
@@ -192,4 +194,6 @@ public abstract class TimeBasedWriterPartitioner<D> implements WriterPartitioner
   }
 
   public abstract long getRecordTimestamp(D record);
+
+  public String getColumns() { return this.columns; }
 }

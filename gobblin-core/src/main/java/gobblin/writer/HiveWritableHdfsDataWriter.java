@@ -28,6 +28,8 @@ import org.apache.hadoop.mapred.JobConf;
 import com.google.common.base.Preconditions;
 
 import gobblin.configuration.State;
+import gobblin.configuration.ConfigurationKeys;
+import gobblin.util.ForkOperatorUtils;
 
 
 /**
@@ -62,7 +64,10 @@ public class HiveWritableHdfsDataWriter extends FsDataWriter<Writable> {
       Class<? extends Writable> writableClass = (Class<? extends Writable>) Class
           .forName(this.properties.getProp(HiveWritableHdfsDataWriterBuilder.WRITER_WRITABLE_CLASS));
 
-      return outputFormat.getHiveRecordWriter(new JobConf(), this.stagingFile, writableClass, true,
+      String isCompressedProp = ForkOperatorUtils.getPropertyNameForBranch(ConfigurationKeys.WRITER_COMPRESSION_KEY, this.branchId);
+      boolean isCompressed = this.properties.getPropAsBoolean(isCompressedProp, ConfigurationKeys.DEFAULT_WRITER_COMPRESSION_ENABLED);
+
+      return outputFormat.getHiveRecordWriter(new JobConf(), this.stagingFile, writableClass, isCompressed,
           this.properties.getProperties(), null);
     } catch (Throwable t) {
       throw new IOException(String.format("Failed to create writer"), t);

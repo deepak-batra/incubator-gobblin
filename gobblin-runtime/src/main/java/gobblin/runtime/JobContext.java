@@ -134,7 +134,8 @@ public class JobContext implements Closeable {
     this.jobSequence = Long.toString(Id.Job.parse(this.jobId).getSequence());
     jobProps.setProperty(ConfigurationKeys.JOB_ID_KEY, this.jobId);
 
-    this.jobBroker = instanceBroker.newSubscopedBuilder(new JobScopeInstance(this.jobName, this.jobId)).build();
+    this.jobBroker = instanceBroker.newSubscopedBuilder(new JobScopeInstance(this.jobName, this.jobId))
+        .withOverridingConfig(ConfigUtils.propertiesToConfig(jobProps)).build();
     this.jobCommitPolicy = JobCommitPolicy.getCommitPolicy(jobProps);
 
     this.datasetStateStore = createStateStore(ConfigUtils.propertiesToConfig(jobProps));
@@ -285,9 +286,23 @@ public class JobContext implements Closeable {
   }
 
   protected void setTaskStagingAndOutputDirs() {
-    if (this.jobState.contains(ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY)) {
 
-      // Add jobId to task data root dir
+    // Add jobId to writer staging dir
+    if (this.jobState.contains(ConfigurationKeys.WRITER_STAGING_DIR)) {
+      String writerStagingDirWithJobId =
+          new Path(this.jobState.getProp(ConfigurationKeys.WRITER_STAGING_DIR), this.jobId).toString();
+      this.jobState.setProp(ConfigurationKeys.WRITER_STAGING_DIR, writerStagingDirWithJobId);
+    }
+
+    // Add jobId to writer output dir
+    if (this.jobState.contains(ConfigurationKeys.WRITER_OUTPUT_DIR)) {
+      String writerOutputDirWithJobId =
+          new Path(this.jobState.getProp(ConfigurationKeys.WRITER_OUTPUT_DIR), this.jobId).toString();
+      this.jobState.setProp(ConfigurationKeys.WRITER_OUTPUT_DIR, writerOutputDirWithJobId);
+    }
+
+    // Add jobId to task data root dir
+    if (this.jobState.contains(ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY)) {
       String taskDataRootDirWithJobId =
           new Path(this.jobState.getProp(ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY), this.jobId).toString();
       this.jobState.setProp(ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY, taskDataRootDirWithJobId);
@@ -311,8 +326,10 @@ public class JobContext implements Closeable {
           ConfigurationKeys.WRITER_STAGING_DIR, ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY));
     } else {
       String workingDir = this.jobState.getProp(ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY);
-      this.jobState
-          .setProp(ConfigurationKeys.WRITER_STAGING_DIR, new Path(workingDir, TASK_STAGING_DIR_NAME).toString());
+      this.jobState.setProp(ConfigurationKeys.WRITER_STAGING_DIR,
+          new Path(workingDir, TASK_STAGING_DIR_NAME).toString());
+      LOG.info(String.format("Writer Staging Directory is set to %s.",
+          this.jobState.getProp(ConfigurationKeys.WRITER_STAGING_DIR)));
     }
   }
 
@@ -329,6 +346,8 @@ public class JobContext implements Closeable {
     } else {
       String workingDir = this.jobState.getProp(ConfigurationKeys.TASK_DATA_ROOT_DIR_KEY);
       this.jobState.setProp(ConfigurationKeys.WRITER_OUTPUT_DIR, new Path(workingDir, TASK_OUTPUT_DIR_NAME).toString());
+      LOG.info(String.format("Writer Output Directory is set to %s.",
+          this.jobState.getProp(ConfigurationKeys.WRITER_OUTPUT_DIR)));
     }
   }
 

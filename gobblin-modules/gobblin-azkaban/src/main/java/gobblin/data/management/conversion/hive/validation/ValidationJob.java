@@ -16,12 +16,21 @@
  */
 package gobblin.data.management.conversion.hive.validation;
 
+import gobblin.config.client.ConfigClient;
+import gobblin.config.client.api.VersionStabilityPolicy;
+import gobblin.configuration.ConfigurationKeys;
+import gobblin.util.PathUtils;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URI;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -116,9 +125,15 @@ public class ValidationJob extends AbstractJob {
   private static final String HIVE_VALIDATION_IGNORE_DATA_PATH_IDENTIFIER_KEY = "hive.validation.ignoreDataPathIdentifier";
   private static final String DEFAULT_HIVE_VALIDATION_IGNORE_DATA_PATH_IDENTIFIER = org.apache.commons.lang.StringUtils.EMPTY;
   private static final Splitter COMMA_BASED_SPLITTER = Splitter.on(",").omitEmptyStrings().trimResults();
+  private static final Splitter EQUALITY_SPLITTER = Splitter.on("=").omitEmptyStrings().trimResults();
+  private static final Splitter SLASH_SPLITTER = Splitter.on("/").omitEmptyStrings().trimResults();
   private static final String VALIDATION_FILE_FORMAT_KEY = "hive.validation.fileFormat";
   private static final String IS_NESTED_ORC = "hive.validation.isNestedORC";
   private static final String DEFAULT_IS_NESTED_ORC = "false";
+  private static final String HIVE_SETTINGS = "hive.settings";
+  private static final String DATEPARTITION = "datepartition";
+  private static final String DATE_FORMAT = "yyyy-MM-dd-HH";
+  public static final String GOBBLIN_CONFIG_TAGS_WHITELIST = "gobblin.config.tags.whitelist";
 
   private final ValidationType validationType;
   private List<String> ignoreDataPathIdentifierList;
@@ -135,6 +150,9 @@ public class ValidationJob extends AbstractJob {
   private final ExecutorService exec;
   private final List<Future<Void>> futures;
   private final Boolean isNestedORC;
+  private final List<String> hiveSettings;
+  protected Optional<String> configStoreUri;
+  private static final short maxParts = 1000;
 
   private Map<String, String> successfulConversions;
   private Map<String, String> failedConversions;
@@ -176,6 +194,8 @@ public class ValidationJob extends AbstractJob {
             DEFAULT_HIVE_VALIDATION_IGNORE_DATA_PATH_IDENTIFIER));
     this.throwables = new ArrayList<>();
     this.isNestedORC = Boolean.parseBoolean(props.getProperty(IS_NESTED_ORC, DEFAULT_IS_NESTED_ORC));
+    this.hiveSettings = Splitter.on(";").trimResults().omitEmptyStrings()
+        .splitToList(props.getProperty(HIVE_SETTINGS, StringUtils.EMPTY));
   }
 
   @Override
@@ -189,34 +209,62 @@ public class ValidationJob extends AbstractJob {
 
   /**
    * Validates that partitions are in a given format
+   * Partitions to be processed are picked up from the config store which are tagged.
+   * Tag can be passed through key GOBBLIN_CONFIG_TAGS_WHITELIST
+   * Datasets tagged by the above key will be picked up.
+   * PathName will be treated as tableName and ParentPathName will be treated as dbName
+   *
+   * For example if the dataset uri picked up by is /data/hive/myDb/myTable
+   * Then myTable is tableName and myDb is dbName
    */
-  private void runFileFormatValidation()
-      throws IOException {
+  private void runFileFormatValidation() throws IOException {
     Preconditions.checkArgument(this.props.containsKey(VALIDATION_FILE_FORMAT_KEY));
-    Iterator<HiveDataset> iterator = this.datasetFinder.getDatasetsIterator();
-    EventSubmitter.submit(Optional.of(this.eventSubmitter), EventConstants.VALIDATION_FIND_HIVE_TABLES_EVENT);
-    while (iterator.hasNext()) {
-      HiveDataset hiveDataset = iterator.next();
-      if (!HiveUtils.isPartitioned(hiveDataset.getTable())) {
+
+    this.configStoreUri =
+        StringUtils.isNotBlank(this.props.getProperty(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI)) ? Optional.of(
+            this.props.getProperty(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_URI)) : Optional.<String>absent();
+    if (!Boolean.valueOf(this.props.getProperty(ConfigurationKeys.CONFIG_MANAGEMENT_STORE_ENABLED,
+        ConfigurationKeys.DEFAULT_CONFIG_MANAGEMENT_STORE_ENABLED))) {
+      this.configStoreUri = Optional.<String>absent();
+    }
+    List<Partition> partitions = new ArrayList<>();
+    if (this.configStoreUri.isPresent()) {
+      Preconditions.checkArgument(this.props.containsKey(GOBBLIN_CONFIG_TAGS_WHITELIST),
+          "Missing required property " + GOBBLIN_CONFIG_TAGS_WHITELIST);
+      String tag = this.props.getProperty(GOBBLIN_CONFIG_TAGS_WHITELIST);
+      ConfigClient configClient = ConfigClient.createConfigClient(VersionStabilityPolicy.WEAK_LOCAL_STABILITY);
+      Path tagUri = PathUtils.mergePaths(new Path(this.configStoreUri.get()), new Path(tag));
+      try (AutoReturnableObject<IMetaStoreClient> client = pool.getClient()) {
+        Collection<URI> importedBy = configClient.getImportedBy(new URI(tagUri.toString()), true);
+        for (URI uri : importedBy) {
+          String dbName = new Path(uri).getParent().getName();
+          Table table = new Table(client.get().getTable(dbName, new Path(uri).getName()));
+          for (org.apache.hadoop.hive.metastore.api.Partition partition : client.get()
+              .listPartitions(dbName, table.getTableName(), maxParts)) {
+            partitions.add(new Partition(table, partition));
+          }
+        }
+      } catch (Exception e) {
+        this.throwables.add(e);
+      }
+    }
+
+    for (Partition partition : partitions) {
+      if (!shouldValidate(partition)) {
         continue;
       }
-      for (Partition partition : hiveDataset.getPartitionsFromDataset()) {
-        if (!shouldValidate(partition)) {
-          continue;
-        }
-        String fileFormat = this.props.getProperty(VALIDATION_FILE_FORMAT_KEY);
-        Optional<HiveSerDeWrapper.BuiltInHiveSerDe> hiveSerDe =
-            Enums.getIfPresent(HiveSerDeWrapper.BuiltInHiveSerDe.class, fileFormat.toUpperCase());
-        if (!hiveSerDe.isPresent()) {
-          throwables.add(new Throwable("Partition SerDe is either not supported or absent"));
-          continue;
-        }
+      String fileFormat = this.props.getProperty(VALIDATION_FILE_FORMAT_KEY);
+      Optional<HiveSerDeWrapper.BuiltInHiveSerDe> hiveSerDe =
+          Enums.getIfPresent(HiveSerDeWrapper.BuiltInHiveSerDe.class, fileFormat.toUpperCase());
+      if (!hiveSerDe.isPresent()) {
+        throwables.add(new Throwable("Partition SerDe is either not supported or absent"));
+        continue;
+      }
 
-        String serdeLib = partition.getTPartition().getSd().getSerdeInfo().getSerializationLib();
-        if (!hiveSerDe.get().toString().equalsIgnoreCase(serdeLib)) {
-          throwables.add(new Throwable(
-              "Partition SerDe " + serdeLib + " doesn't match with the required SerDe " + hiveSerDe.get().toString()));
-        }
+      String serdeLib = partition.getTPartition().getSd().getSerdeInfo().getSerializationLib();
+      if (!hiveSerDe.get().toString().equalsIgnoreCase(serdeLib)) {
+        throwables.add(new Throwable("Partition " + partition.getCompleteName() + " SerDe " + serdeLib
+            + " doesn't match with the required SerDe " + hiveSerDe.get().toString()));
       }
     }
     if (!this.throwables.isEmpty()) {
@@ -474,7 +522,7 @@ public class ValidationJob extends AbstractJob {
     } finally {
       try {
         closer.close();
-      } catch (IOException e) {
+      } catch (Exception e) {
         log.warn("Could not close HiveJdbcConnector", e);
       }
       if (null != statement) {
@@ -512,6 +560,9 @@ public class ValidationJob extends AbstractJob {
         query = "INSERT OVERWRITE DIRECTORY '" + hiveTempDir + "' " + query;
         log.info("Executing query: " + query);
         try {
+          if (this.hiveSettings.size() > 0) {
+            hiveJdbcConnector.executeStatements(this.hiveSettings.toArray(new String[this.hiveSettings.size()]));
+          }
           hiveJdbcConnector.executeStatements("SET hive.exec.compress.output=false","SET hive.auto.convert.join=false", query);
           FileStatus[] fileStatusList = this.fs.listStatus(hiveTempDir);
           List<FileStatus> files = new ArrayList<>();
@@ -549,7 +600,7 @@ public class ValidationJob extends AbstractJob {
     } finally {
       try {
         closer.close();
-      } catch (IOException e) {
+      } catch (Exception e) {
         log.warn("Could not close HiveJdbcConnector", e);
       }
     }
@@ -618,11 +669,40 @@ public class ValidationJob extends AbstractJob {
   private boolean shouldValidate(Partition partition) {
     for (String pathToken : this.ignoreDataPathIdentifierList) {
       if (partition.getDataLocation().toString().toLowerCase().contains(pathToken.toLowerCase())) {
+        log.info("Skipping partition " + partition.getCompleteName() + " containing invalid token " + pathToken
+            .toLowerCase());
         return false;
       }
     }
-    long createTime = HiveSource.getCreateTime(partition);
-    return new DateTime(createTime).isAfter(this.maxLookBackTime) && new DateTime(createTime).isBefore(this.skipRecentThanTime);
+
+    try {
+      long createTime = getPartitionCreateTime(partition.getName());
+      boolean withinTimeWindow = new DateTime(createTime).isAfter(this.maxLookBackTime) && new DateTime(createTime)
+          .isBefore(this.skipRecentThanTime);
+      if (!withinTimeWindow) {
+        log.info("Skipping partition " + partition.getCompleteName() + " as create time " + new DateTime(createTime)
+            .toString() + " is not within validation time window ");
+      } else {
+        log.info("Validating partition " + partition.getCompleteName());
+        return withinTimeWindow;
+      }
+    } catch (ParseException e) {
+      Throwables.propagate(e);
+    }
+    return false;
+  }
+
+  public static Long getPartitionCreateTime(String partitionName)
+      throws ParseException {
+    String dateString = null;
+    for (String st : SLASH_SPLITTER.splitToList(partitionName)) {
+      if (st.startsWith(DATEPARTITION)) {
+        dateString = EQUALITY_SPLITTER.splitToList(st).get(1);
+      }
+    }
+    Preconditions.checkNotNull(dateString, "Unable to get partition date");
+    DateFormat dateFormat = new SimpleDateFormat(DATE_FORMAT);
+    return dateFormat.parse(dateString).getTime();
   }
 
   private Pair<Optional<org.apache.hadoop.hive.metastore.api.Table>, Optional<List<Partition>>> getDestinationTableMeta(String dbName, String tableName,

@@ -19,6 +19,7 @@ package gobblin.source.workunit;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Arrays;
 
 import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
@@ -139,8 +140,13 @@ public class Extract extends State {
    * @return writer output file path corresponding to this {@link Extract}
    */
   public String getOutputFilePath() {
-    return this.getNamespace().replaceAll("\\.", "/") + "/" + this.getTable() + "/" + this.getExtractId() + "_"
-        + (this.getIsFull() ? "full" : "append");
+//    String extractFilePath = this.getNamespace().replaceAll("\\.", "/") + "/" + this.getTable() + "/" + this.getExtractId() + "_"
+//        + (this.getIsFull() ? "full" : "append");
+    String[] tableArray = this.getTable().split("\\.");
+    String[] newTableArray = Arrays.copyOfRange(tableArray, 1, tableArray.length);
+    String schemaTable = String.join("/", newTableArray);
+//    return extractFilePath;
+    return schemaTable;
   }
 
   /**
