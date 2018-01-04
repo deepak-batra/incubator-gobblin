@@ -87,8 +87,9 @@ public class PartitionedDataWriter<S, D> extends WriterWrapper<D> implements Fin
       }
     });
 
+    int numBranches = state.getPropAsInt(ConfigurationKeys.FORK_BRANCHES_KEY, 1);
     String writerPartitionerPropName = ForkOperatorUtils
-            .getPropertyNameForBranch(ConfigurationKeys.WRITER_PARTITIONER_CLASS, builder.getBranch());
+            .getPropertyNameForBranch(ConfigurationKeys.WRITER_PARTITIONER_CLASS, numBranches, builder.getBranch());
 
     if (state.contains(writerPartitionerPropName)) {
       Preconditions.checkArgument(builder instanceof PartitionAwareDataWriterBuilder, String
