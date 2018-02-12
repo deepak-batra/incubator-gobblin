@@ -24,6 +24,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Preconditions;
+import gobblin.hive.policy.HiveRegistrationPolicyBase;
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -104,9 +106,16 @@ public class HiveMetastoreClientPool {
     config.setMaxTotal(this.hiveRegProps.getNumThreads());
     config.setMaxIdle(this.hiveRegProps.getNumThreads());
 
+    if (!metastoreURI.isPresent())
+      metastoreURI = properties.containsKey(HiveConf.ConfVars.METASTOREURIS.varname) ?
+              Optional.of(properties.getProperty(HiveConf.ConfVars.METASTOREURIS.varname)) : Optional.absent();
     this.factory = new HiveMetaStoreClientFactory(metastoreURI);
-    this.pool = new GenericObjectPool<>(this.factory, config);
     this.hiveConf = this.factory.getHiveConf();
+    Preconditions.checkArgument(properties.containsKey(HiveRegistrationPolicyBase.HIVE_FS_URI),
+            HiveRegistrationPolicyBase.HIVE_FS_URI + " should be present.");
+    hiveConf.set(HiveConf.ConfVars.HADOOPFS.varname, properties.getProperty(HiveRegistrationPolicyBase.HIVE_FS_URI));
+    this.pool = new GenericObjectPool<>(this.factory, config);
+
   }
 
   public void close() {

@@ -17,21 +17,24 @@
 
 package gobblin.hive;
 
-import java.io.IOException;
-
-import org.apache.hadoop.fs.Path;
-
+import com.google.common.base.Preconditions;
 import gobblin.configuration.State;
 import gobblin.hive.policy.HiveRegistrationPolicy;
 import gobblin.hive.policy.HiveRegistrationPolicyBase;
 import gobblin.hive.spec.HiveSpec;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+
+import java.io.IOException;
 
 
 /**
  * Utility class for registering data into Hive.
  */
 public class HiveRegisterUtils {
-
+  private static final String S3_ACCESS_KEY ="fs.s3a.access.key";
+  private static final String S3_SECRET_KEY ="fs.s3a.secret.key";
+  private static final String S3_PREFIX ="s3";
   private HiveRegisterUtils() {
   }
 
@@ -52,4 +55,19 @@ public class HiveRegisterUtils {
       }
     }
   }
+
+  public  static String getTableLocation(HiveRegProps props, FileSystem fs, String dbName, String tableName){
+    StringBuilder location = new StringBuilder();
+    String hiveRegUri = props.getProp(HiveRegistrationPolicyBase.HIVE_FS_URI, "");
+    Preconditions.checkArgument(!hiveRegUri.isEmpty(), HiveRegistrationPolicyBase.HIVE_FS_URI+ " cannot be left empty");
+    if (!hiveRegUri.startsWith(S3_PREFIX))
+      return fs.makeQualified(new Path(location.append(hiveRegUri).append(dbName).append(tableName).toString())).toString();
+
+    String path = hiveRegUri.split(fs.getScheme() + "://")[1];
+    location.append(fs.getScheme()).append("://").append(props.getSpecProperties().getProperty(S3_ACCESS_KEY)).append(":")
+            .append(props.getSpecProperties().getProperty(S3_SECRET_KEY)).append("@").append(path).append(dbName).
+            append("/").append(tableName);
+    return location.toString();
+  }
+
 }

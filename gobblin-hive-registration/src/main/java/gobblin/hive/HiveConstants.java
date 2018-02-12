@@ -42,6 +42,7 @@ public class HiveConstants {
   public static final String OWNER = "owner";
   public static final String TABLE_TYPE = "table.type";
   public static final String RETENTION = "retention";
+  public static final String PARTITION_KEYS = "partition.keys";
 
   /**
    * Storage properties

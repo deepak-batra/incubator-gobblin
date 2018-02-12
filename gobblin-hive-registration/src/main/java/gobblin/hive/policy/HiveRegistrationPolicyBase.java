@@ -18,22 +18,25 @@
 package gobblin.hive.policy;
 
 import com.codahale.metrics.Timer;
+import com.google.common.base.Optional;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.typesafe.config.Config;
+import gobblin.annotation.Alpha;
 import gobblin.config.client.ConfigClient;
 import gobblin.config.client.api.VersionStabilityPolicy;
-import gobblin.hive.HiveRegister;
+import gobblin.configuration.ConfigurationKeys;
+import gobblin.configuration.State;
+import gobblin.hive.*;
 import gobblin.hive.metastore.HiveMetaStoreUtils;
+import gobblin.hive.spec.HiveSpec;
+import gobblin.hive.spec.SimpleHiveSpec;
 import gobblin.instrumented.Instrumented;
 import gobblin.metrics.MetricContext;
 import gobblin.source.extractor.extract.kafka.ConfigStoreUtils;
 import gobblin.source.extractor.extract.kafka.KafkaSource;
-import java.io.IOException;
-import java.net.URI;
-import java.util.Collection;
-import java.util.List;
-import java.util.regex.Pattern;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.reflect.ConstructorUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -41,20 +44,11 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.TableType;
 
-import com.google.common.base.Optional;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
-import gobblin.annotation.Alpha;
-import gobblin.configuration.ConfigurationKeys;
-import gobblin.configuration.State;
-import gobblin.hive.HivePartition;
-import gobblin.hive.HiveRegProps;
-import gobblin.hive.HiveSerDeManager;
-import gobblin.hive.HiveTable;
-import gobblin.hive.spec.HiveSpec;
-import gobblin.hive.spec.SimpleHiveSpec;
+import java.io.IOException;
+import java.net.URI;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 /**
@@ -271,7 +265,11 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
     if (this.props.contains(nameKey)) {
       name = this.props.getProp(nameKey);
     } else if (pattern.isPresent()) {
-      name = pattern.get().matcher(path.toString()).group();
+      Matcher matcher = pattern.get().matcher(path.toString());
+      if (matcher.matches() && matcher.groupCount() >= 1)
+        name = matcher.group(1);
+      else
+        throw new IllegalStateException("No match found for the regexKey " + regexKey +  "on path" + path.toString());
     } else {
       throw new IllegalStateException("Missing required property " + nameKey + " or " + regexKey);
     }
@@ -336,7 +334,8 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
    */
   protected HiveTable getTable(Path path, String dbName, String tableName) throws IOException {
     HiveTable table = new HiveTable.Builder().withDbName(dbName).withTableName(tableName)
-        .withSerdeManaager(HiveSerDeManager.get(this.props)).build();
+        .withSerdeManaager(HiveSerDeManager.get(this.props)).
+                    withPartitionKeys(getTablePartitionKeys(this.props.getTablePartitionProps()).get()).build();
 
     table.setLocation(this.fs.makeQualified(getTableLocation(path)).toString());
     table.setSerDeProps(path);
@@ -347,8 +346,9 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
       tableProps.setProp(HiveMetaStoreUtils.RUNTIME_PROPS, this.props.getRuntimeTableProps().get());
     }
     table.setProps(tableProps);
-
     table.setStorageProps(this.props.getStorageProps());
+    String location = HiveRegisterUtils.getTableLocation(this.props, this.fs, dbName, tableName);
+    table.setLocation(location);
     table.setSerDeProps(this.props.getSerdeProps());
     table.setNumBuckets(-1);
     table.setBucketColumns(Lists.<String> newArrayList());
@@ -356,9 +356,35 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
     return table;
   }
 
-  protected Optional<HivePartition> getPartition(Path path, HiveTable table) throws IOException {
-    return Optional.<HivePartition> absent();
-  }
+    protected Optional<List<HiveRegistrationUnit.Column>> getTablePartitionKeys(State partitionProps) {
+        Set<String> propertyNames = partitionProps.getPropertyNames();
+        if (propertyNames.isEmpty())
+            return Optional.of(Collections.emptyList());
+        List<HiveRegistrationUnit.Column> partitionKeys =  new ArrayList<>();
+        for (String key: propertyNames) {
+            if (key.startsWith(HiveConstants.PARTITION_KEYS)) {
+                partitionKeys.add(new HiveRegistrationUnit.Column(
+                        key.substring(HiveConstants.PARTITION_KEYS.length() + 1), partitionProps.getProp(key), ""));
+            }
+        }
+        return Optional.of(partitionKeys);
+    }
+
+    protected Optional<HivePartition> getPartition(Path path, HiveTable table) throws IOException {
+
+        if (table.getPartitionKeys() == null || table.getPartitionKeys().isEmpty())
+            return Optional.<HivePartition> absent();
+        List<String> partitionKeys = new ArrayList<>();
+        for (HiveRegistrationUnit.Column column: table.getPartitionKeys())
+            partitionKeys.add(column.getName());
+        HivePartition partition = new HivePartition.Builder().withTable(table).withPartitionValues(partitionKeys).build();
+        partition.setLocation(table.getLocation().get());
+      partition.setNumBuckets(-1);
+      table.setBucketColumns(Lists.<String> newArrayList());
+      table.setTableType(TableType.EXTERNAL_TABLE.toString());
+        return Optional.of(partition);
+
+    }
 
   protected Path getTableLocation(Path path) {
     return path;

@@ -67,7 +67,7 @@ public abstract class HiveRegister implements Closeable {
   public static final String HIVE_PARTITION_COMPARATOR_TYPE = "hive.partition.comparator.type";
   public static final String DEFAULT_HIVE_PARTITION_COMPARATOR_TYPE = HivePartitionComparator.class.getName();
 
-  protected static final String HIVE_DB_EXTENSION = ".db";
+  // protected static final String HIVE_DB_EXTENSION = ".db";
 
   @Getter
   protected final HiveRegProps props;

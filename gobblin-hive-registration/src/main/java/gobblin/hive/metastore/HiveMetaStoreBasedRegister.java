@@ -26,6 +26,8 @@ import java.util.List;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+
+import gobblin.hive.*;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
@@ -46,14 +48,7 @@ import com.google.common.primitives.Ints;
 
 import gobblin.annotation.Alpha;
 import gobblin.configuration.State;
-import gobblin.hive.HiveMetaStoreClientFactory;
-import gobblin.hive.HiveLock;
-import gobblin.hive.HiveMetastoreClientPool;
-import gobblin.hive.HivePartition;
-import gobblin.hive.HiveRegProps;
-import gobblin.hive.HiveRegister;
 import gobblin.hive.HiveRegistrationUnit.Column;
-import gobblin.hive.HiveTable;
 import gobblin.hive.spec.HiveSpec;
 import gobblin.metrics.GobblinMetrics;
 import gobblin.metrics.GobblinMetricsRegistry;
@@ -103,6 +98,7 @@ public class HiveMetaStoreBasedRegister extends HiveRegister {
    * We make this optimization configurable by setting {@link #OPTIMIZED_CHECK_ENABLED} to be true.
    */
   public static final String OPTIMIZED_CHECK_ENABLED = "hiveRegister.cacheDbTableExistence";
+  protected static final String HIVE_DB_EXTENSION = ".db";
 
   private final HiveMetastoreClientPool clientPool;
   private final HiveLock locks = new HiveLock();
@@ -215,7 +211,6 @@ public class HiveMetaStoreBasedRegister extends HiveRegister {
     }
   }
 
-
   /**
    * If databse existed on Hive side will return false;
    * Or will create the table thru. RPC and return retVal from remote MetaStore.
@@ -239,6 +234,7 @@ public class HiveMetaStoreBasedRegister extends HiveRegister {
 
       Preconditions.checkState(this.hiveDbRootDir.isPresent(),
           "Missing required property " + HiveRegProps.HIVE_DB_ROOT_DIR);
+
       db.setLocationUri(new Path(this.hiveDbRootDir.get(), hiveDbName + HIVE_DB_EXTENSION).toString());
 
       try {

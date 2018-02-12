@@ -17,13 +17,12 @@
 
 package gobblin.hive;
 
-import java.util.List;
-
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import gobblin.annotation.Alpha;
 import lombok.Getter;
+
+import java.util.List;
 
 
 /**
@@ -63,6 +62,14 @@ public class HivePartition extends HiveRegistrationUnit {
       this.values = values;
       return this;
     }
+
+    public Builder withTable(HiveTable table) {
+      this.withDbName(table.getDbName()).withTableName(table.getTableName())
+              .withSerdeManaager(table.getSerDeManager().get()).withProps(table.getProps())
+              .withSerdeProps(table.getSerDeProps()).withStorageProps(table.getStorageProps());
+      return this;
+    }
+
 
     @Override
     public HivePartition build() {

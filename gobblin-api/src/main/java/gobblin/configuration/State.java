@@ -564,4 +564,8 @@ public class State implements WritableShim {
   public String toString() {
     return "Common:" + this.commonProperties.toString() + "\n Specific: " + this.specProperties.toString();
   }
+
+  public Properties getSpecProperties() {
+    return specProperties;
+  }
 }

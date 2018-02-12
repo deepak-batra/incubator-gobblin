@@ -17,19 +17,17 @@
 
 package gobblin.hive;
 
-import gobblin.hive.metastore.HiveMetaStoreUtils;
-import java.util.List;
-
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
-
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-
 import gobblin.annotation.Alpha;
 import gobblin.configuration.State;
 import gobblin.hive.metastore.HiveMetaStoreBasedRegister;
+import gobblin.hive.metastore.HiveMetaStoreUtils;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+
+import java.util.List;
 
 
 /**
@@ -52,8 +50,11 @@ public class HiveRegProps extends State {
 
   private static final Splitter SPLITTER = Splitter.on(':').trimResults().omitEmptyStrings();
 
+  @Getter
   private final State tablePartitionProps;
+  @Getter
   private final State storageProps;
+  @Getter
   private final State serdeProps;
 
   private Optional<String> runtimeTableProps;
@@ -71,6 +72,7 @@ public class HiveRegProps extends State {
   public HiveRegProps(State props) {
     super(props);
     this.tablePartitionProps = createHiveProps(HIVE_TABLE_PARTITION_PROPS);
+
     if (props.contains(HiveMetaStoreUtils.RUNTIME_PROPS)) {
       runtimeTableProps = Optional.of(props.getProp(HiveMetaStoreUtils.RUNTIME_PROPS));
     }
@@ -79,6 +81,7 @@ public class HiveRegProps extends State {
     }
     this.storageProps = createHiveProps(HIVE_STORAGE_PROPS);
     this.serdeProps = createHiveProps(HIVE_SERDE_PROPS);
+
   }
 
   /**

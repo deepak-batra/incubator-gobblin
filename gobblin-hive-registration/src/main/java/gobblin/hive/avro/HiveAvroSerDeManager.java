@@ -18,24 +18,25 @@
 package gobblin.hive.avro;
 
 import com.codahale.metrics.Timer;
-import gobblin.instrumented.Instrumented;
-import gobblin.metrics.MetricContext;
-import java.io.IOException;
-
-import org.apache.avro.Schema;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-
 import com.google.common.base.Preconditions;
-
 import gobblin.annotation.Alpha;
+import gobblin.configuration.ConfigurationKeys;
 import gobblin.configuration.State;
 import gobblin.hive.HiveRegistrationUnit;
 import gobblin.hive.HiveSerDeManager;
 import gobblin.hive.HiveSerDeWrapper;
+import gobblin.instrumented.Instrumented;
+import gobblin.metrics.MetricContext;
 import gobblin.util.AvroUtils;
+import gobblin.util.ForkOperatorUtils;
 import gobblin.util.HadoopUtils;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.avro.Schema;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+
+import java.io.IOException;
+import java.net.URI;
 
 
 /**
@@ -68,7 +69,11 @@ public class HiveAvroSerDeManager extends HiveSerDeManager {
 
   public HiveAvroSerDeManager(State props) throws IOException {
     super(props);
-    this.fs = FileSystem.get(HadoopUtils.getConfFromState(props));
+    int numBranches = props.getPropAsInt(ConfigurationKeys.FORK_BRANCHES_KEY, 1);
+    URI publisherUri = URI.create(props.getProp(ForkOperatorUtils
+                    .getPropertyNameForBranch(ConfigurationKeys.DATA_PUBLISHER_FILE_SYSTEM_URI, -1),
+            ConfigurationKeys.LOCAL_FS_URI));
+    this.fs = FileSystem.get(publisherUri,HadoopUtils.getConfFromState(props));
     this.useSchemaFile = props.getPropAsBoolean(USE_SCHEMA_FILE, DEFAULT_USE_SCHEMA_FILE);
     this.schemaFileName = props.getProp(SCHEMA_FILE_NAME, DEFAULT_SCHEMA_FILE_NAME);
     this.schemaLiteralLengthLimit =
