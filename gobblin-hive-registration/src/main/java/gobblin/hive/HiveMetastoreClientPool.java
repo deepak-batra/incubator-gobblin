@@ -111,9 +111,9 @@ public class HiveMetastoreClientPool {
               Optional.of(properties.getProperty(HiveConf.ConfVars.METASTOREURIS.varname)) : Optional.absent();
     this.factory = new HiveMetaStoreClientFactory(metastoreURI);
     this.hiveConf = this.factory.getHiveConf();
-    Preconditions.checkArgument(properties.containsKey(HiveRegistrationPolicyBase.HIVE_FS_URI),
-            HiveRegistrationPolicyBase.HIVE_FS_URI + " should be present.");
-    hiveConf.set(HiveConf.ConfVars.HADOOPFS.varname, properties.getProperty(HiveRegistrationPolicyBase.HIVE_FS_URI));
+//    Preconditions.checkArgument(properties.containsKey(HiveRegistrationPolicyBase.HIVE_FS_URI),
+//            HiveRegistrationPolicyBase.HIVE_FS_URI + " should be present.");
+//    hiveConf.set(HiveConf.ConfVars.HADOOPFS.varname, properties.getProperty(HiveRegistrationPolicyBase.HIVE_FS_URI));
     this.pool = new GenericObjectPool<>(this.factory, config);
 
   }

@@ -16,12 +16,7 @@ public class CopyableAvroGenericRecordWritable implements Copyable<AvroGenericRe
     }
 
     @Override
-    public AvroGenericRecordWritable copy()
-            throws CopyNotSupportedException {
-        if (!(this.record instanceof Writable)) {
-            throw new CopyNotSupportedException(
-                    "The record to make copy is not an instance of " + Writable.class.getName());
-        }
+    public AvroGenericRecordWritable copy() throws CopyNotSupportedException {
 
         // Make a deep copy of the original record
         AvroGenericRecordWritable avroWritable = new AvroGenericRecordWritable();

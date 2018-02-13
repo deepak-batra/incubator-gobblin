@@ -21,6 +21,7 @@ repositories {
 
 subprojects {
   repositories {
+    mavenLocal()
     mavenCentral()
     maven {
       url "https://repository.cloudera.com/artifactory/cloudera-repos/"

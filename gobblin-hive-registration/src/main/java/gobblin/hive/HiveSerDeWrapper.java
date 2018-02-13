@@ -170,7 +170,7 @@ public class HiveSerDeWrapper {
    * {@link #SERDE_SERIALIZER_INPUT_FORMAT_TYPE}, {@link #SERDE_SERIALIZER_OUTPUT_FORMAT_TYPE} and
    */
   public static HiveSerDeWrapper getSerializer(State state) {
-    int branchId = Integer.valueOf(state.getProp(ConfigurationKeys.FORK_BRANCH_ID_KEY, "-1"));
+    int branchId = Integer.parseInt(state.getProp(ConfigurationKeys.FORK_BRANCH_ID_KEY, "-1"));
     return getSerializer(state, branchId);
   }
 
@@ -190,7 +190,7 @@ public class HiveSerDeWrapper {
    * {@link #SERDE_DESERIALIZER_INPUT_FORMAT_TYPE}, {@link #SERDE_DESERIALIZER_OUTPUT_FORMAT_TYPE} and
    */
   public static HiveSerDeWrapper getDeserializer(State state) {
-    int branchId = Integer.valueOf(state.getProp(ConfigurationKeys.FORK_BRANCH_ID_KEY, "-1"));
+    int branchId = Integer.parseInt(state.getProp(ConfigurationKeys.FORK_BRANCH_ID_KEY, "-1"));
     return getDeserializer(state, branchId);
   }
 

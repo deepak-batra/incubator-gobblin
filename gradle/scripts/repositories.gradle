@@ -16,12 +16,16 @@
  */
 
 repositories {
+  mavenLocal()
   mavenCentral()
   maven {
     url "https://plugins.gradle.org/m2/"
   }
   maven {
     url "http://packages.confluent.io/maven/"
+  }
+  maven {
+    url "/Volumes/Pythagoras/code/repo/"
   }
   jcenter()
 }

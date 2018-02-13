@@ -74,38 +74,34 @@ public class OrcUtils {
             List<FileStatus> files = getDirectorySchemaHelper(directory, fs);
             if (files == null || files.size() == 0) {
                 LOG.warn("There is no previous orc file in the directory:" + directory);
-            } else {
-                FileStatus file = latest ? files.get(0) : files.get(files.size() - 1);
-                LOG.debug("Path to get the orc schema: " + file);
-                FsInput fi = new FsInput(file.getPath(), fs.getConf());
-                Reader reader = OrcFile.createReader(file.getPath(), OrcFile.readerOptions(fs.getConf()));
-                List<? extends StructField> fields =
-                        ((StructObjectInspector)reader.getObjectInspector()).getAllStructFieldRefs();
-                TypeInfo typeInfo = TypeInfoUtils.getTypeInfoFromObjectInspector(reader.getObjectInspector());
-                List<String> columnNames = new ArrayList<>();
-                List<TypeInfo> columnTypes = new ArrayList<>();
-                StringBuilder columnsBuilder = new StringBuilder();
-                StringBuilder columnTypesBuilder = new StringBuilder();
-                for (int i=0; i < fields.size(); i++) {
-                    columnNames.add(fields.get(i).getFieldName());
-                    TypeInfo info = TypeInfoUtils.getTypeInfoFromObjectInspector(fields.get(i).getFieldObjectInspector());
-                    columnTypes.add(info);
-                    if (i > 0) {
-                        columnsBuilder.append(",");
-                        columnTypesBuilder.append(",");
-                    }
-                    columnsBuilder.append(fields.get(i).getFieldName());
-                    columnTypesBuilder.append(info.getTypeName());
-                }
-                pair = new ImmutablePair<>(columnsBuilder.toString(), columnTypesBuilder.toString());
-                schema = new TypeInfoToSchema().convert(columnNames, columnTypes,
-                        Collections.emptyList(), null, null, null);
-                closer.close();
+                return Optional.absent();
             }
+            FileStatus file = latest ? files.get(0) : files.get(files.size() - 1);
+            LOG.debug("Path to get the orc schema: " + file);
+            Reader reader = OrcFile.createReader(file.getPath(), OrcFile.readerOptions(fs.getConf()));
+            List<? extends StructField> fields =
+                    ((StructObjectInspector)reader.getObjectInspector()).getAllStructFieldRefs();
+            List<String> columnNames = new ArrayList<>();
+            List<TypeInfo> columnTypes = new ArrayList<>();
+            StringBuilder columnsBuilder = new StringBuilder();
+            StringBuilder columnTypesBuilder = new StringBuilder();
+            for (int i=0; i < fields.size(); i++) {
+                columnNames.add(fields.get(i).getFieldName());
+                TypeInfo info = TypeInfoUtils.getTypeInfoFromObjectInspector(fields.get(i).getFieldObjectInspector());
+                columnTypes.add(info);
+                if (i > 0) {
+                    columnsBuilder.append(",");
+                    columnTypesBuilder.append(",");
+                }
+                columnsBuilder.append(fields.get(i).getFieldName());
+                columnTypesBuilder.append(info.getTypeName());
+            }
+            pair = new ImmutablePair<>(columnsBuilder.toString(), columnTypesBuilder.toString());
+            closer.close();
         } catch (IOException ioe) {
             throw new IOException("Cannot get the schema for directory " + directory, ioe);
         }
-        return pair == null?Optional.absent():Optional.of(pair);
+        return Optional.of(pair);
     }
 
     /**
@@ -121,6 +117,13 @@ public class OrcUtils {
         return getDirectorySchema(directory, FileSystem.get(conf), latest);
     }
 
+    /**
+     * Get the list of statuses from a directory of files sorted on last modified time.
+     * @param directory
+     * @param fs
+     * @return
+     * @throws IOException
+     */
     private static List<FileStatus> getDirectorySchemaHelper(Path directory, FileSystem fs) throws IOException {
         List<FileStatus> files = Lists.newArrayList();
         if (fs.exists(directory)) {
@@ -132,6 +135,13 @@ public class OrcUtils {
         return files;
     }
 
+    /**
+     * Method to list all nested ORC files in a director recursively
+     * @param dir
+     * @param files
+     * @param fs
+     * @throws IOException
+     */
     private static void getAllNestedOrcFiles(FileStatus dir, List<FileStatus> files, FileSystem fs) throws IOException {
         if (dir.isDirectory()) {
             FileStatus[] filesInDir = fs.listStatus(dir.getPath());
@@ -146,24 +156,40 @@ public class OrcUtils {
     }
 
     /**
-     * Parse Avro schema from a schema file.
+     * Parse schema for an orc file from a schema file.
      */
     public static Pair<String, String> parseSchemaFromFile(Path filePath, FileSystem fs) throws IOException {
         Preconditions.checkArgument(fs.exists(filePath), filePath + "does not exist");
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(fs.open(filePath)))) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(fs.open(filePath), "UTF-8"))) {
             String columns = reader.readLine();
             String types = reader.readLine();
             return new ImmutablePair<>(columns, types);
         }
     }
 
-
+    /**
+     * Method to write schema to a file with overwrite property
+     * @param schema
+     * @param filePath
+     * @param fs
+     * @param overwrite
+     * @throws IOException
+     */
     public static void writeSchemaToFile(Pair<String, String> schema, Path filePath, FileSystem fs, boolean overwrite)
             throws IOException {
         writeSchemaToFile(schema, filePath, fs, overwrite, new FsPermission(FsAction.ALL, FsAction.ALL, FsAction.READ));
     }
 
+    /**
+     * Method to write schema to a file with permissions
+     * @param schema
+     * @param filePath
+     * @param fs
+     * @param overwrite
+     * @param perm
+     * @throws IOException
+     */
     public static void writeSchemaToFile(Pair<String, String> schema, Path filePath, FileSystem fs, boolean overwrite, FsPermission perm)
             throws IOException {
         if (!overwrite) {

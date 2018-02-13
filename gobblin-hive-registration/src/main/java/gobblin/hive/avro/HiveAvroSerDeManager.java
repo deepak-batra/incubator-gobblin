@@ -69,7 +69,6 @@ public class HiveAvroSerDeManager extends HiveSerDeManager {
 
   public HiveAvroSerDeManager(State props) throws IOException {
     super(props);
-    int numBranches = props.getPropAsInt(ConfigurationKeys.FORK_BRANCHES_KEY, 1);
     URI publisherUri = URI.create(props.getProp(ForkOperatorUtils
                     .getPropertyNameForBranch(ConfigurationKeys.DATA_PUBLISHER_FILE_SYSTEM_URI, -1),
             ConfigurationKeys.LOCAL_FS_URI));
@@ -125,7 +124,7 @@ public class HiveAvroSerDeManager extends HiveSerDeManager {
     }
   }
 
-  private void addSchemaProperties(Path path, HiveRegistrationUnit hiveUnit) throws IOException {
+  protected void addSchemaProperties(Path path, HiveRegistrationUnit hiveUnit) throws IOException {
     Preconditions.checkArgument(this.fs.getFileStatus(path).isDirectory(), path + " is not a directory.");
 
     Path schemaFile = new Path(path, this.schemaFileName);

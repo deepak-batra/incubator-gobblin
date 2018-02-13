@@ -17,6 +17,8 @@
 
 package gobblin.source.extractor.extract.kafka;
 
+import gobblin.configuration.ConfigurationKeys;
+import gobblin.hive.avro.HiveAvroSerDeManager;
 import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import io.confluent.kafka.serializers.KafkaJsonDeserializer;
 
@@ -103,6 +105,7 @@ public class KafkaDeserializerExtractor extends KafkaExtractor<Object, Object> {
     this.kafkaSchemaRegistry = kafkaSchemaRegistry;
     this.latestSchema =
         (deserializerType.equals(Optional.of(Deserializers.CONFLUENT_AVRO))) ? (Schema) getSchema() : null;
+    state.setProp(HiveAvroSerDeManager.SCHEMA_LITERAL, this.latestSchema.toString());
   }
 
   @Override

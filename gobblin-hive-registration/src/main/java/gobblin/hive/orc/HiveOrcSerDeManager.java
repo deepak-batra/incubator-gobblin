@@ -40,10 +40,8 @@ import gobblin.configuration.State;
 import gobblin.hive.HiveRegistrationUnit;
 import gobblin.hive.HiveSerDeManager;
 import gobblin.hive.HiveSerDeWrapper;
-import gobblin.util.AvroUtils;
-import gobblin.util.HadoopUtils;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hadoop.hive.serde2.avro.TypeInfoToSchema;
+import org.apache.hadoop.hive.ql.io.IOConstants;
 
 /**
  * A {@link HiveSerDeManager} for registering ORC tables and partitions.
@@ -55,39 +53,12 @@ import org.apache.hadoop.hive.serde2.avro.TypeInfoToSchema;
 public class HiveOrcSerDeManager extends HiveAvroSerDeManager {
 
     protected final HiveSerDeWrapper serDeWrapper;
-    public static String ORC_COLUMNS = "columns";
-    public static String ORC_COLUMNS_TYPES = "columns.types";
-
     private final MetricContext metricContext ;
 
     public HiveOrcSerDeManager(State props) throws IOException {
         super(props);
         serDeWrapper = HiveSerDeWrapper.get("ORC");
         this.metricContext = Instrumented.getMetricContext(props, gobblin.hive.orc.HiveOrcSerDeManager.class);
-    }
-
-    /**
-     * Add an Avro {@link Schema} to the given {@link HiveRegistrationUnit}.
-     *
-     *  <p>
-     *    If {@link #USE_SCHEMA_FILE} is true, the schema will be added via {@link #SCHEMA_URL} pointing to
-     *    the schema file named {@link #SCHEMA_FILE_NAME}.
-     *  </p>
-     *
-     *  <p>
-     *    If {@link #USE_SCHEMA_FILE} is false, the schema will be obtained by {@link #getDirectorySchema(Path)}.
-     *    If the length of the schema is less than {@link #SCHEMA_LITERAL_LENGTH_LIMIT}, it will be added via
-     *    {@link #SCHEMA_LITERAL}. Otherwise, the schema will be written to {@link #SCHEMA_FILE_NAME} and added
-     *    via {@link #SCHEMA_URL}.
-     *  </p>
-     */
-    @Override
-    public void addSerDeProperties(Path path, HiveRegistrationUnit hiveUnit) throws IOException {
-        hiveUnit.setSerDeType(this.serDeWrapper.getSerDe().getClass().getName());
-        hiveUnit.setInputFormat(this.serDeWrapper.getInputFormatClassName());
-        hiveUnit.setOutputFormat(this.serDeWrapper.getOutputFormatClassName());
-
-        addSchemaProperties(path, hiveUnit);
     }
 
     @Override
@@ -109,7 +80,8 @@ public class HiveOrcSerDeManager extends HiveAvroSerDeManager {
         }
     }
 
-    private void addSchemaProperties(Path path, HiveRegistrationUnit hiveUnit) throws IOException {
+    @Override
+    protected void addSchemaProperties(Path path, HiveRegistrationUnit hiveUnit) throws IOException {
         Preconditions.checkArgument(this.fs.getFileStatus(path).isDirectory(), path + " is not a directory.");
 
         Path schemaFile = new Path(path, this.schemaFileName);
@@ -143,12 +115,11 @@ public class HiveOrcSerDeManager extends HiveAvroSerDeManager {
      *    via {@link #SCHEMA_URL}.
      *  </p>
      */
-    protected void addSchemaFromOrcFile(Optional<Pair<String,String>> schema, Path schemaFile, HiveRegistrationUnit
-            hiveUnit)
-            throws IOException {
+    protected void addSchemaFromOrcFile(Optional<Pair<String,String>> schema, Path schemaFile,
+                                        HiveRegistrationUnit hiveUnit) throws IOException {
         Preconditions.checkArgument(schema.isPresent());
-        hiveUnit.setSerDeProp(ORC_COLUMNS, schema.get().getLeft());
-        hiveUnit.setSerDeProp(ORC_COLUMNS_TYPES, schema.get().getRight());
+        hiveUnit.setSerDeProp(IOConstants.COLUMNS, schema.get().getLeft());
+        hiveUnit.setSerDeProp(IOConstants.COLUMNS_TYPES, schema.get().getRight());
         if (schema.get().toString().length() <= this.schemaLiteralLengthLimit)
             hiveUnit.setSerDeProp(SCHEMA_LITERAL, schema.get().toString());
         else {
