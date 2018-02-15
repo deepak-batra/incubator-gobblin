@@ -104,9 +104,13 @@ public class HiveMetastoreClientPool {
     config.setMaxTotal(this.hiveRegProps.getNumThreads());
     config.setMaxIdle(this.hiveRegProps.getNumThreads());
 
+    if (!metastoreURI.isPresent())
+      metastoreURI = properties.containsKey(HiveConf.ConfVars.METASTOREURIS.varname) ?
+              Optional.of(properties.getProperty(HiveConf.ConfVars.METASTOREURIS.varname)) : Optional.absent();
     this.factory = new HiveMetaStoreClientFactory(metastoreURI);
-    this.pool = new GenericObjectPool<>(this.factory, config);
     this.hiveConf = this.factory.getHiveConf();
+    this.pool = new GenericObjectPool<>(this.factory, config);
+
   }
 
   public void close() {

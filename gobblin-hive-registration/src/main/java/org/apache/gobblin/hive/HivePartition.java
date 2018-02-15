@@ -64,6 +64,14 @@ public class HivePartition extends HiveRegistrationUnit {
       return this;
     }
 
+    public Builder withTable(HiveTable table) {
+      this.withDbName(table.getDbName()).withTableName(table.getTableName())
+              .withSerdeManaager(table.getSerDeManager().get()).withProps(table.getProps())
+              .withSerdeProps(table.getSerDeProps()).withStorageProps(table.getStorageProps());
+      return this;
+    }
+
+
     @Override
     public HivePartition build() {
       return new HivePartition(this);

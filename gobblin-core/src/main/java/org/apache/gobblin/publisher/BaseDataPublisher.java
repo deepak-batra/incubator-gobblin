@@ -416,6 +416,7 @@ public class BaseDataPublisher extends SingleTaskDataPublisher {
 
       movePath(parallelRunner, state, writerOutputDir, publisherOutputDir, branchId);
       writerOutputPathsMoved.add(writerOutputDir);
+      state.appendToSetProp(ConfigurationKeys.PUBLISHER_DIRS, publisherOutputDir.toString());
     }
   }
 

@@ -46,6 +46,8 @@ dependencies {
   compile externalDependency.gson
   compile externalDependency.opencsv
   compile externalDependency.hadoopHdfs
+  compile externalDependency.hiveCommon
+  compile externalDependency.hiveExec
 
   runtime externalDependency.hadoopCommon
   runtime externalDependency.hadoopClientCore

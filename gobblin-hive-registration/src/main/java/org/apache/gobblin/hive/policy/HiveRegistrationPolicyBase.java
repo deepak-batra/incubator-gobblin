@@ -19,13 +19,18 @@ package org.apache.gobblin.hive.policy;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.reflect.ConstructorUtils;
+import org.apache.gobblin.hive.HiveConstants;
+import org.apache.gobblin.hive.HiveRegistrationUnit;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -69,6 +74,10 @@ import org.apache.gobblin.source.extractor.extract.kafka.KafkaSource;
 @Alpha
 public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
 
+  private static final String S3_ACCESS_KEY ="fs.s3a.access.key";
+  private static final String S3_SECRET_KEY ="fs.s3a.secret.key";
+  private static final String S3_PREFIX ="s3";
+
   public static final String HIVE_DATABASE_NAME = "hive.database.name";
   public static final String ADDITIONAL_HIVE_DATABASE_NAMES = "additional.hive.database.names";
   public static final String HIVE_DATABASE_REGEX = "hive.database.regex";
@@ -86,7 +95,7 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
   public static final String PRIMARY_TABLE_TOKEN = "$PRIMARY_TABLE";
   protected static final ConfigClient configClient =
       org.apache.gobblin.config.client.ConfigClient.createConfigClient(VersionStabilityPolicy.WEAK_LOCAL_STABILITY);
-
+  private static final Splitter LIST_SPLITTER_COMMA = Splitter.on(",").trimResults().omitEmptyStrings();
   /**
    * A valid db or table name should start with an alphanumeric character, and contains only
    * alphanumeric characters and '_'.
@@ -302,7 +311,7 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
    * A base implementation for creating {@link HiveTable}s given a {@link Path}.
    *
    * <p>
-   *   This method returns a list of {@link Hivetable}s that contains one table per db name
+   *   This method returns a list of {@link HiveTable}s that contains one table per db name
    *   (returned by {@link #getDatabaseNames(Path)}) and table name (returned by {@link #getTableNames(Path)}.
    * </p>
    *
@@ -342,9 +351,9 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
    */
   protected HiveTable getTable(Path path, String dbName, String tableName) throws IOException {
     HiveTable table = new HiveTable.Builder().withDbName(dbName).withTableName(tableName)
-        .withSerdeManaager(HiveSerDeManager.get(this.props)).build();
+            .withSerdeManaager(HiveSerDeManager.get(this.props))
+            .withPartitionKeys(getTablePartitionKeys(this.props.getTablePartitionProps()).get()).build();
 
-    table.setLocation(this.fs.makeQualified(getTableLocation(path)).toString());
     table.setSerDeProps(path);
 
     // Setting table-level props.
@@ -356,18 +365,57 @@ public class HiveRegistrationPolicyBase implements HiveRegistrationPolicy {
 
     table.setStorageProps(this.props.getStorageProps());
     table.setSerDeProps(this.props.getSerdeProps());
+    table.setLocation(getTableLocation(path, dbName, tableName).toString());
     table.setNumBuckets(-1);
     table.setBucketColumns(Lists.<String> newArrayList());
     table.setTableType(TableType.EXTERNAL_TABLE.toString());
     return table;
   }
 
-  protected Optional<HivePartition> getPartition(Path path, HiveTable table) throws IOException {
-    return Optional.<HivePartition> absent();
+  protected Optional<List<HiveRegistrationUnit.Column>> getTablePartitionKeys(State partitionProps) {
+    Set<String> propertyNames = partitionProps.getPropertyNames();
+    if (propertyNames.isEmpty())
+      return Optional.of(Collections.emptyList());
+    List<HiveRegistrationUnit.Column> partitionKeys =  new ArrayList<>();
+    for (String key: propertyNames) {
+      if (key.startsWith(HiveConstants.PARTITION_KEYS)) {
+        partitionKeys.add(new HiveRegistrationUnit.Column(
+                key.substring(HiveConstants.PARTITION_KEYS.length() + 1), partitionProps.getProp(key), ""));
+      }
+    }
+    return Optional.of(partitionKeys);
   }
 
-  protected Path getTableLocation(Path path) {
-    return path;
+  protected Optional<HivePartition> getPartition(Path path, HiveTable table) throws IOException {
+
+    if (table.getPartitionKeys() == null || table.getPartitionKeys().isEmpty())
+    return Optional.<HivePartition> absent();
+    List<String> partitionKeys = new ArrayList<>();
+    for (HiveRegistrationUnit.Column column: table.getPartitionKeys())
+      partitionKeys.add(column.getName());
+    HivePartition partition = new HivePartition.Builder().withTable(table).withPartitionValues(partitionKeys).build();
+    partition.setLocation(table.getLocation().get());
+    partition.setNumBuckets(-1);
+    table.setBucketColumns(Lists.<String> newArrayList());
+    table.setTableType(TableType.EXTERNAL_TABLE.toString());
+    return Optional.of(partition);
+
+  }
+
+  protected Path getTableLocation(Path path, String dbName, String tableName) {
+
+    StringBuilder location = new StringBuilder();
+    String hiveRegUri = props.getProp(HiveRegistrationPolicyBase.HIVE_FS_URI, "");
+    Preconditions.checkArgument(!hiveRegUri.isEmpty(), HiveRegistrationPolicyBase.HIVE_FS_URI+ " cannot be left empty");
+    if (!hiveRegUri.startsWith(S3_PREFIX))
+      return this.fs.makeQualified(path);
+
+    String pathString = hiveRegUri.split(fs.getScheme() + "://")[1];
+
+    location.append(fs.getScheme()).append("://").append(props.getSpecProperties().getProperty(S3_ACCESS_KEY)).append(":")
+            .append(props.getSpecProperties().getProperty(S3_SECRET_KEY)).append("@").append(pathString).append(dbName);
+    return new Path(location.toString(), tableName);
+
   }
 
   /**
